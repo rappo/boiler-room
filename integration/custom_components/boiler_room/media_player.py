@@ -47,6 +47,7 @@ class BoilerRoomMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         MediaPlayerEntityFeature.PLAY_MEDIA
         | MediaPlayerEntityFeature.BROWSE_MEDIA
         | MediaPlayerEntityFeature.TURN_OFF
+        | MediaPlayerEntityFeature.VOLUME_SET
     )
 
     def __init__(self, coordinator, api, entry: ConfigEntry) -> None:
@@ -87,6 +88,20 @@ class BoilerRoomMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         return []
 
     @property
+    def _apps(self) -> list[dict[str, Any]]:
+        """Get the app list from coordinator data."""
+        if self.coordinator.data:
+            return self.coordinator.data.get("apps", [])
+        return []
+
+    @property
+    def _sensors(self) -> dict[str, Any]:
+        """Get sensor data."""
+        if self.coordinator.data:
+            return self.coordinator.data.get("sensors", {})
+        return {}
+
+    @property
     def state(self) -> MediaPlayerState:
         """Return the state of the media player."""
         if not self._status:
@@ -105,12 +120,26 @@ class BoilerRoomMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         return None
 
     @property
+    def volume_level(self) -> float | None:
+        """Return the volume level (0.0 to 1.0)."""
+        vol = self._sensors.get("volume")
+        if vol is not None:
+            return vol / 100.0
+        return None
+
+    async def async_set_volume_level(self, volume: float) -> None:
+        """Set volume level (0.0 to 1.0)."""
+        await self._api.set_volume(int(volume * 100))
+        await self.coordinator.async_request_refresh()
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes."""
         attrs = {}
         if self._status:
             attrs["gaming_mode"] = self._status.get("gaming_mode", False)
             attrs["game_count"] = self._status.get("game_count", 0)
+            attrs["app_count"] = self._status.get("app_count", 0)
             attrs["mac_address"] = self._status.get("mac_address", "")
             attrs["ip_address"] = self._status.get("ip_address", "")
             attrs["uptime_seconds"] = self._status.get("uptime_seconds", 0)
@@ -119,15 +148,20 @@ class BoilerRoomMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     async def async_play_media(
         self, media_type: MediaType | str, media_id: str, **kwargs: Any
     ) -> None:
-        """Launch a game by AppID."""
-        _LOGGER.info("Launching game with AppID: %s", media_id)
-        result = await self._api.launch(appid=media_id)
+        """Launch a game or app."""
+        _LOGGER.info("Launching: type=%s, id=%s", media_type, media_id)
+
+        if media_type == "app":
+            result = await self._api.launch(appid=media_id, launch_type="app")
+        else:
+            # Default: game launch
+            result = await self._api.launch(appid=media_id)
 
         if result.get("status") == "error":
-            _LOGGER.error("Failed to launch game: %s", result.get("message"))
+            _LOGGER.error("Failed to launch: %s", result.get("message"))
         else:
-            game = result.get("game", {})
-            _LOGGER.info("Launched: %s", game.get("name", media_id))
+            launched = result.get("game") or result.get("app") or {}
+            _LOGGER.info("Launched: %s", launched.get("name", media_id))
 
         await self.coordinator.async_request_refresh()
 
@@ -136,36 +170,98 @@ class BoilerRoomMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         media_content_type: MediaType | str | None = None,
         media_content_id: str | None = None,
     ) -> BrowseMedia:
-        """Show the game library in HA's media browser."""
-        # Root level — show the game library
-        children = []
-        for game in self._games:
+        """Show the game/app library in HA's media browser."""
+
+        # Sub-folder: Games
+        if media_content_id == "games":
+            children = []
+            for game in self._games:
+                children.append(
+                    BrowseMedia(
+                        title=game["name"],
+                        media_class="game",
+                        media_content_type="game",
+                        media_content_id=game["appid"],
+                        can_play=True,
+                        can_expand=False,
+                    )
+                )
+            return BrowseMedia(
+                title="Steam Games",
+                media_class="directory",
+                media_content_type="library",
+                media_content_id="games",
+                can_play=False,
+                can_expand=True,
+                children=children,
+                children_media_class="game",
+            )
+
+        # Sub-folder: Apps
+        if media_content_id == "apps":
+            children = []
+            for app in self._apps:
+                children.append(
+                    BrowseMedia(
+                        title=app["name"],
+                        media_class="app",
+                        media_content_type="app",
+                        media_content_id=app["id"],
+                        can_play=True,
+                        can_expand=False,
+                    )
+                )
+            return BrowseMedia(
+                title="Apps",
+                media_class="directory",
+                media_content_type="library",
+                media_content_id="apps",
+                can_play=False,
+                can_expand=True,
+                children=children,
+                children_media_class="app",
+            )
+
+        # Root — show categories
+        children = [
+            BrowseMedia(
+                title=f"Steam Games ({len(self._games)})",
+                media_class="directory",
+                media_content_type="library",
+                media_content_id="games",
+                can_play=False,
+                can_expand=True,
+                children_media_class="game",
+            ),
+        ]
+
+        if self._apps:
             children.append(
                 BrowseMedia(
-                    title=game["name"],
-                    media_class="game",
-                    media_content_type="game",
-                    media_content_id=game["appid"],
-                    can_play=True,
-                    can_expand=False,
-                    thumbnail=None,
+                    title=f"Apps ({len(self._apps)})",
+                    media_class="directory",
+                    media_content_type="library",
+                    media_content_id="apps",
+                    can_play=False,
+                    can_expand=True,
+                    children_media_class="app",
                 )
             )
 
         return BrowseMedia(
-            title="Game Library",
+            title="Boiler Room",
             media_class="directory",
             media_content_type="library",
-            media_content_id="library",
+            media_content_id="root",
             can_play=False,
             can_expand=True,
             children=children,
-            children_media_class="game",
         )
 
     async def async_turn_off(self) -> None:
-        """Suspend the SteamOS device (placeholder for Phase 2)."""
-        _LOGGER.info("Turn off requested — suspend not yet implemented")
+        """Suspend the SteamOS device."""
+        _LOGGER.info("Suspending SteamOS device")
+        await self._api.power_action("suspend")
 
     @callback
     def _handle_coordinator_update(self) -> None:

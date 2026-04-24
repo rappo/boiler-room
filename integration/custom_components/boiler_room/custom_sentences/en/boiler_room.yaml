@@ -6,3 +6,29 @@ intents:
           - "(Launch|Play|Start|Open|Run|Boot up|Fire up) {game_name}"
           - "Put on {game_name}"
           - "(Launch|Play|Start|Open|Run) {game_name} on the (deck|steam machine|tv|living room|gaming pc)"
+
+  BoilerRoomOpenApp:
+    data:
+      - sentences:
+          - "Open {app_name}"
+          - "Open {app_name} on the (deck|steam machine|tv|living room|gaming pc)"
+          - "(Launch|Start) {app_name}"
+
+  BoilerRoomJellyfinSearch:
+    data:
+      - sentences:
+          - "(Search|Find|Look for|Play) {query} on Jellyfin"
+          - "Put on {query}"
+
+  BoilerRoomYouTubeSearch:
+    data:
+      - sentences:
+          - "Search YouTube for {query}"
+          - "(Open|Play|Watch) {query} on YouTube"
+
+  BoilerRoomSystemControl:
+    data:
+      - sentences:
+          - "Turn off the (deck|steam machine|gaming pc)"
+          - "Suspend the (deck|steam machine|gaming pc)"
+          - "(Set|Change) (deck|steam machine) volume to {volume}"

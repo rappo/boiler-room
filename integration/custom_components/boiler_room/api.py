@@ -31,6 +31,8 @@ class BoilerRoomAPI:
         if self._session and not self._session.closed:
             await self._session.close()
 
+    # ─── Phase 1: Core ───
+
     async def get_status(self) -> dict[str, Any]:
         """Get the agent status."""
         session = await self._get_session()
@@ -47,17 +49,23 @@ class BoilerRoomAPI:
             return await resp.json()
 
     async def launch(
-        self, target: str | None = None, appid: str | None = None
+        self,
+        target: str | None = None,
+        appid: str | None = None,
+        launch_type: str = "game",
+        url: str | None = None,
     ) -> dict[str, Any]:
-        """Launch a game by name or AppID."""
+        """Launch a game, app, or URL."""
         session = await self._get_session()
-        payload: dict[str, str] = {"type": "game"}
+        payload: dict[str, str] = {"type": launch_type}
         if appid:
             payload["appid"] = appid
         elif target:
             payload["target"] = target
+        elif url:
+            payload["url"] = url
         else:
-            raise ValueError("Must provide target or appid")
+            raise ValueError("Must provide target, appid, or url")
 
         async with session.post(f"{self.base_url}/launch", json=payload) as resp:
             return await resp.json()
@@ -69,3 +77,40 @@ class BoilerRoomAPI:
             return True
         except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
             return False
+
+    # ─── Phase 2: Apps ───
+
+    async def get_apps(self, refresh: bool = False) -> list[dict[str, Any]]:
+        """Get the list of installed Flatpak apps."""
+        session = await self._get_session()
+        params = {"refresh": "true"} if refresh else {}
+        async with session.get(f"{self.base_url}/apps", params=params) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+    # ─── Phase 2: System ───
+
+    async def get_sensors(self) -> dict[str, Any]:
+        """Get system sensor data (CPU temp, GPU temp, battery, volume)."""
+        session = await self._get_session()
+        async with session.get(f"{self.base_url}/system/sensors") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+    async def set_volume(self, level: int) -> dict[str, Any]:
+        """Set system volume (0-100)."""
+        session = await self._get_session()
+        async with session.post(
+            f"{self.base_url}/system/volume", json={"level": level}
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+    async def power_action(self, action: str) -> dict[str, Any]:
+        """Execute a power action: suspend, shutdown, or reboot."""
+        session = await self._get_session()
+        async with session.post(
+            f"{self.base_url}/system/power", json={"action": action}
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()

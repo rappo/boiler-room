@@ -5,8 +5,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import PERCENTAGE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -28,13 +33,18 @@ async def async_setup_entry(
     device_id = entry.data.get(CONF_DEVICE_ID, entry.entry_id)
     device_name = entry.data.get(CONF_DEVICE_NAME, "SteamOS Device")
 
-    async_add_entities(
-        [
-            BoilerRoomCurrentGameSensor(coordinator, device_id, device_name),
-            BoilerRoomGameCountSensor(coordinator, device_id, device_name),
-        ],
-        update_before_add=True,
-    )
+    entities = [
+        BoilerRoomCurrentGameSensor(coordinator, device_id, device_name),
+        BoilerRoomGameCountSensor(coordinator, device_id, device_name),
+        BoilerRoomCPUTempSensor(coordinator, device_id, device_name),
+        BoilerRoomGPUTempSensor(coordinator, device_id, device_name),
+    ]
+
+    # Only add battery sensor if the device reports one
+    if coordinator.data and coordinator.data.get("sensors", {}).get("battery_level", -1) >= 0:
+        entities.append(BoilerRoomBatterySensor(coordinator, device_id, device_name))
+
+    async_add_entities(entities, update_before_add=True)
 
 
 class BoilerRoomSensorBase(CoordinatorEntity, SensorEntity):
@@ -62,6 +72,13 @@ class BoilerRoomSensorBase(CoordinatorEntity, SensorEntity):
         if self.coordinator.data:
             return self.coordinator.data.get("status")
         return None
+
+    @property
+    def _sensors(self) -> dict[str, Any]:
+        """Get sensor data from coordinator."""
+        if self.coordinator.data:
+            return self.coordinator.data.get("sensors", {})
+        return {}
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -93,6 +110,7 @@ class BoilerRoomGameCountSensor(BoilerRoomSensorBase):
 
     _attr_name = "Installed Games"
     _attr_icon = "mdi:controller"
+    _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, coordinator, device_id: str, device_name: str) -> None:
         """Initialize the sensor."""
@@ -105,3 +123,63 @@ class BoilerRoomGameCountSensor(BoilerRoomSensorBase):
         if self._status:
             return self._status.get("game_count", 0)
         return 0
+
+
+class BoilerRoomCPUTempSensor(BoilerRoomSensorBase):
+    """Sensor showing CPU temperature."""
+
+    _attr_name = "CPU Temperature"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
+    def __init__(self, coordinator, device_id: str, device_name: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, device_id, device_name)
+        self._attr_unique_id = f"{device_id}_cpu_temp"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the CPU temperature."""
+        val = self._sensors.get("cpu_temp", 0)
+        return round(val, 1) if val else None
+
+
+class BoilerRoomGPUTempSensor(BoilerRoomSensorBase):
+    """Sensor showing GPU temperature."""
+
+    _attr_name = "GPU Temperature"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
+    def __init__(self, coordinator, device_id: str, device_name: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, device_id, device_name)
+        self._attr_unique_id = f"{device_id}_gpu_temp"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the GPU temperature."""
+        val = self._sensors.get("gpu_temp", 0)
+        return round(val, 1) if val else None
+
+
+class BoilerRoomBatterySensor(BoilerRoomSensorBase):
+    """Sensor showing battery level (Steam Deck only)."""
+
+    _attr_name = "Battery"
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = PERCENTAGE
+
+    def __init__(self, coordinator, device_id: str, device_name: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, device_id, device_name)
+        self._attr_unique_id = f"{device_id}_battery"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the battery level."""
+        val = self._sensors.get("battery_level", -1)
+        return val if val >= 0 else None

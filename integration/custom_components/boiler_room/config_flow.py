@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -19,8 +20,13 @@ from .const import (
     DEFAULT_PORT,
     DOMAIN,
 )
+from .ssh_install import install_via_ssh
 
 _LOGGER = logging.getLogger(__name__)
+
+CONF_SSH_USERNAME = "ssh_username"
+CONF_SSH_PASSWORD = "ssh_password"
+CONF_SSH_PORT = "ssh_port"
 
 
 class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -35,8 +41,146 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
         self._device_name: str = "SteamOS Device"
         self._device_id: str = ""
         self._game_count: int = 0
+        self._app_count: int = 0
+        self._ssh_username: str = "deck"
+        self._ssh_password: str = ""
+
+    # ─── Step 1: Choose setup method ───
 
     async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the initial step — choose setup method."""
+        if user_input is not None:
+            method = user_input.get("method", "manual")
+            if method == "ssh_install":
+                return await self.async_step_ssh_credentials()
+            elif method == "manual":
+                return await self.async_step_manual()
+            # "auto" — just wait for zeroconf (no action needed)
+            return await self.async_step_manual()
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("method", default="ssh_install"): vol.In(
+                        {
+                            "ssh_install": "Install agent on SteamOS via SSH",
+                            "manual": "Connect to existing agent (manual IP)",
+                        }
+                    ),
+                }
+            ),
+        )
+
+    # ─── SSH Install Path ───
+
+    async def async_step_ssh_credentials(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Collect SSH credentials for remote installation."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            self._host = user_input[CONF_HOST]
+            self._ssh_username = user_input.get(CONF_SSH_USERNAME, "deck")
+            self._ssh_password = user_input.get(CONF_SSH_PASSWORD, "")
+
+            # Proceed to install
+            return await self.async_step_ssh_install()
+
+        return self.async_show_form(
+            step_id="ssh_credentials",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HOST): str,
+                    vol.Optional(CONF_SSH_USERNAME, default="deck"): str,
+                    vol.Optional(CONF_SSH_PASSWORD, default=""): str,
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_ssh_install(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Execute the SSH installation."""
+        errors: dict[str, str] = {}
+
+        # Run the install
+        result = await install_via_ssh(
+            host=self._host,
+            username=self._ssh_username,
+            password=self._ssh_password if self._ssh_password else None,
+        )
+
+        if not result["success"]:
+            _LOGGER.error("SSH install failed: %s", result["message"])
+            errors["base"] = "ssh_install_failed"
+            return self.async_show_form(
+                step_id="ssh_credentials",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_HOST, default=self._host): str,
+                        vol.Optional(CONF_SSH_USERNAME, default=self._ssh_username): str,
+                        vol.Optional(CONF_SSH_PASSWORD, default=""): str,
+                    }
+                ),
+                errors=errors,
+                description_placeholders={
+                    "error_detail": result["message"],
+                },
+            )
+
+        # Install succeeded — wait for the agent API to come online
+        _LOGGER.info("Agent installed, waiting for API to come online...")
+        self._port = DEFAULT_PORT
+        api = BoilerRoomAPI(self._host, self._port)
+
+        for attempt in range(15):
+            _LOGGER.debug("Checking agent API (attempt %d/15)...", attempt + 1)
+            if await api.test_connection():
+                break
+            await asyncio.sleep(2)
+        else:
+            await api.close()
+            errors["base"] = "agent_not_responding"
+            return self.async_show_form(
+                step_id="ssh_credentials",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_HOST, default=self._host): str,
+                        vol.Optional(CONF_SSH_USERNAME, default=self._ssh_username): str,
+                        vol.Optional(CONF_SSH_PASSWORD, default=""): str,
+                    }
+                ),
+                errors=errors,
+            )
+
+        # Agent is online — fetch status
+        try:
+            status = await api.get_status()
+            self._device_id = status.get("device_id", "")
+            self._device_name = status.get("device_name", "SteamOS Device")
+            self._game_count = status.get("game_count", 0)
+            self._app_count = status.get("app_count", 0)
+        except Exception:
+            _LOGGER.exception("Failed to get agent status after install")
+        finally:
+            await api.close()
+
+        if self._device_id:
+            await self.async_set_unique_id(self._device_id)
+            self._abort_if_unique_id_configured(
+                updates={CONF_HOST: self._host}
+            )
+
+        return await self.async_step_confirm()
+
+    # ─── Manual Setup Path ───
+
+    async def async_step_manual(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle manual setup by the user."""
@@ -46,13 +190,13 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
             self._host = user_input[CONF_HOST]
             self._port = user_input.get(CONF_PORT, DEFAULT_PORT)
 
-            # Test connection
             api = BoilerRoomAPI(self._host, self._port)
             try:
                 status = await api.get_status()
                 self._device_id = status.get("device_id", "")
                 self._device_name = status.get("device_name", "SteamOS Device")
                 self._game_count = status.get("game_count", 0)
+                self._app_count = status.get("app_count", 0)
                 await api.close()
 
                 if not self._device_id:
@@ -64,7 +208,6 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
 
                 return await self.async_step_confirm()
-
             except Exception:
                 _LOGGER.exception("Failed to connect to Boiler Room agent")
                 errors["base"] = "cannot_connect"
@@ -72,7 +215,7 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
                 await api.close()
 
         return self.async_show_form(
-            step_id="user",
+            step_id="manual",
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_HOST): str,
@@ -81,6 +224,8 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
             errors=errors,
         )
+
+    # ─── Zeroconf Discovery ───
 
     async def async_step_zeroconf(
         self, discovery_info: ZeroconfServiceInfo
@@ -111,6 +256,7 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
         try:
             status = await api.get_status()
             self._game_count = status.get("game_count", 0)
+            self._app_count = status.get("app_count", 0)
         except Exception:
             _LOGGER.warning("Could not connect to discovered agent at %s", self._host)
             return self.async_abort(reason="cannot_connect")
@@ -119,6 +265,8 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
 
         self.context["title_placeholders"] = {"name": self._device_name}
         return await self.async_step_confirm()
+
+    # ─── Confirm ───
 
     async def async_step_confirm(
         self, user_input: dict[str, Any] | None = None
@@ -142,5 +290,6 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
                 "host": self._host,
                 "port": str(self._port),
                 "game_count": str(self._game_count),
+                "app_count": str(self._app_count),
             },
         )
