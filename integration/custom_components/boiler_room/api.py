@@ -151,3 +151,23 @@ class BoilerRoomAPI:
     def get_artwork_url(self, appid: str, art_type: str = "grid") -> str:
         """Return the URL for a game's artwork image."""
         return f"{self.base_url}/games/{appid}/artwork/{art_type}"
+
+    # ─── Session Mode ───
+
+    async def set_session_mode(self, mode: str) -> dict[str, Any]:
+        """Switch between desktop and gaming mode."""
+        session = await self._get_session()
+        async with session.post(
+            f"{self.base_url}/system/session", json={"mode": mode}
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+    # ─── Recent Launches ───
+
+    async def get_recent(self) -> list[dict[str, Any]]:
+        """Get the list of recently launched games and apps."""
+        session = await self._get_session()
+        async with session.get(f"{self.base_url}/recent") as resp:
+            resp.raise_for_status()
+            return await resp.json()

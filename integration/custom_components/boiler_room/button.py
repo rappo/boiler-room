@@ -30,11 +30,26 @@ async def async_setup_entry(
     device_id = entry.data.get(CONF_DEVICE_ID, entry.entry_id)
     device_name = entry.data.get(CONF_DEVICE_NAME, "SteamOS Device")
 
+    # Grab the MAC from the coordinator's initial data (if available)
+    initial_mac = None
+    if coordinator.data:
+        status = coordinator.data.get("status", {})
+        initial_mac = status.get("mac_address")
+
+    # Store MAC in config entry data for persistence across restarts
+    if initial_mac and "mac_address" not in entry.data:
+        new_data = dict(entry.data)
+        new_data["mac_address"] = initial_mac
+        hass.config_entries.async_update_entry(entry, data=new_data)
+
+    # Use stored MAC as fallback
+    stored_mac = entry.data.get("mac_address", initial_mac)
+
     entities = [
         BoilerRoomPowerButton(api, device_id, device_name, "Suspend", "suspend", "mdi:power-sleep"),
         BoilerRoomPowerButton(api, device_id, device_name, "Shutdown", "shutdown", "mdi:power"),
         BoilerRoomPowerButton(api, device_id, device_name, "Reboot", "reboot", "mdi:restart"),
-        BoilerRoomWakeButton(coordinator, device_id, device_name),
+        BoilerRoomWakeButton(coordinator, entry, device_id, device_name, stored_mac),
     ]
 
     async_add_entities(entities)
@@ -73,17 +88,31 @@ class BoilerRoomPowerButton(ButtonEntity):
         await self._api.power_action(self._action)
 
 
-class BoilerRoomWakeButton(CoordinatorEntity, ButtonEntity):
-    """Wake-on-LAN button to power on the SteamOS device."""
+class BoilerRoomWakeButton(ButtonEntity):
+    """Wake-on-LAN button to power on the SteamOS device.
+
+    This does NOT extend CoordinatorEntity so it stays available
+    even when the device is offline/suspended.
+    """
 
     _attr_has_entity_name = True
     _attr_name = "Wake (WoL)"
     _attr_icon = "mdi:power-on"
+    _attr_available = True  # Always available — WoL works when device is off
 
-    def __init__(self, coordinator, device_id: str, device_name: str) -> None:
+    def __init__(
+        self,
+        coordinator,
+        entry: ConfigEntry,
+        device_id: str,
+        device_name: str,
+        initial_mac: str | None,
+    ) -> None:
         """Initialize the WoL button."""
-        super().__init__(coordinator)
+        self._coordinator = coordinator
+        self._entry = entry
         self._device_id = device_id
+        self._mac = initial_mac
         self._attr_unique_id = f"{device_id}_wake_on_lan"
 
     @property
@@ -92,16 +121,28 @@ class BoilerRoomWakeButton(CoordinatorEntity, ButtonEntity):
         return {"identifiers": {(DOMAIN, self._device_id)}}
 
     @property
-    def _mac_address(self) -> str | None:
-        """Get the MAC address from the last known status."""
-        if self.coordinator.data:
-            status = self.coordinator.data.get("status", {})
-            return status.get("mac_address")
-        return None
+    def extra_state_attributes(self):
+        """Return extra state attributes."""
+        return {"mac_address": self._mac or "unknown"}
+
+    def _update_mac(self) -> None:
+        """Update MAC from coordinator if available (device came back online)."""
+        if self._coordinator.data:
+            status = self._coordinator.data.get("status", {})
+            new_mac = status.get("mac_address")
+            if new_mac and new_mac != self._mac:
+                self._mac = new_mac
+                # Persist for next restart
+                new_data = dict(self._entry.data)
+                new_data["mac_address"] = new_mac
+                self.hass.config_entries.async_update_entry(
+                    self._entry, data=new_data
+                )
 
     async def async_press(self) -> None:
         """Send a Wake-on-LAN magic packet."""
-        mac = self._mac_address
+        self._update_mac()
+        mac = self._mac
         if not mac:
             _LOGGER.error("Cannot send WoL: no MAC address known")
             return
@@ -126,4 +167,3 @@ class BoilerRoomWakeButton(CoordinatorEntity, ButtonEntity):
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             sock.sendto(packet, ("255.255.255.255", 9))
             _LOGGER.info("WoL magic packet sent to %s", mac)
-

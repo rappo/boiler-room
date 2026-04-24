@@ -9,7 +9,7 @@ CONF_DEVICE_NAME = "device_name"
 CONF_DEVICE_ID = "device_id"
 
 # Platforms to set up
-PLATFORMS = ["media_player", "sensor", "number", "button", "select"]
+PLATFORMS = ["media_player", "sensor", "number", "button", "select", "switch"]
 
 # mDNS service type
 ZEROCONF_TYPE = "_boiler-room._tcp.local."

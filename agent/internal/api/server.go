@@ -6,6 +6,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/rappo/boiler-room/agent/internal/apps"
@@ -14,6 +17,14 @@ import (
 	"github.com/rappo/boiler-room/agent/internal/system"
 	"github.com/rappo/boiler-room/agent/internal/updater"
 )
+
+// RecentLaunch tracks a recently launched game or app.
+type RecentLaunch struct {
+	Name      string `json:"name"`
+	ID        string `json:"id"`      // AppID or FlatpakID
+	Type      string `json:"type"`    // "game", "app", "shortcut"
+	Timestamp int64  `json:"timestamp"`
+}
 
 // Server is the HTTP API server for the Boiler Room agent.
 type Server struct {
@@ -27,6 +38,9 @@ type Server struct {
 	port          int
 	deviceName    string
 	version       string
+
+	recentMu      sync.Mutex
+	recentLaunches []RecentLaunch
 }
 
 // NewServer creates a new API server.
@@ -60,6 +74,9 @@ func NewServer(scanner *games.Scanner, sysInfo *system.Info, pluginMgr *plugins.
 		log.Printf("Found %d Non-Steam shortcuts", len(shortcutList))
 	}
 
+	// Load recent launches from disk
+	s.loadRecentLaunches()
+
 	return s
 }
 
@@ -83,6 +100,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/v1/system/sensors", s.handleSensors)
 	mux.HandleFunc("POST /api/v1/system/volume", s.handleVolume)
 	mux.HandleFunc("POST /api/v1/system/power", s.handlePower)
+	mux.HandleFunc("POST /api/v1/system/session", s.handleSessionMode)
+	mux.HandleFunc("GET /api/v1/recent", s.handleRecent)
 
 	// Phase 2: Plugins
 	mux.HandleFunc("GET /api/v1/plugins", s.handlePluginList)
@@ -301,6 +320,7 @@ func (s *Server) handleLaunchGame(w http.ResponseWriter, req launchRequest) {
 	}
 
 	log.Printf("Launched game: %s (AppID: %s)", game.Name, game.AppID)
+	s.trackLaunch(game.Name, game.AppID, "game")
 	s.writeJSON(w, http.StatusOK, launchResponse{Status: "launching", Game: game})
 
 	// Broadcast state change via WebSocket
@@ -342,6 +362,7 @@ func (s *Server) handleLaunchApp(w http.ResponseWriter, req launchRequest) {
 		if shortcut.FlatpakID == flatpakID {
 			log.Printf("Launching app %s via Steam shortcut '%s' (appid %s)", flatpakID, shortcut.Name, shortcut.AppID)
 			if err := games.LaunchShortcut(shortcut.AppID); err == nil {
+				s.trackLaunch(shortcut.Name, flatpakID, "app")
 				s.writeJSON(w, http.StatusOK, launchResponse{
 					Status: "launching",
 					App:    &apps.App{ID: flatpakID, Name: shortcut.Name, Type: "flatpak"},
@@ -569,6 +590,109 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Update failed: %v", err)
 		}
 	}()
+}
+
+// --- Session Mode ---
+
+type sessionRequest struct {
+	Mode string `json:"mode"` // "desktop" or "gaming"
+}
+
+func (s *Server) handleSessionMode(w http.ResponseWriter, r *http.Request) {
+	var req sessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	switch req.Mode {
+	case "desktop":
+		log.Println("Switching to Desktop Mode...")
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "mode": "desktop"})
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			exec.Command("steamos-session-select", "plasma").Run()
+		}()
+	case "gaming":
+		log.Println("Switching to Gaming Mode...")
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "mode": "gaming"})
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			exec.Command("steamos-session-select", "gamescope").Run()
+		}()
+	default:
+		s.writeError(w, http.StatusBadRequest, "mode must be 'desktop' or 'gaming'")
+	}
+}
+
+// --- Recent Launches ---
+
+const maxRecentLaunches = 20
+
+func (s *Server) trackLaunch(name, id, launchType string) {
+	s.recentMu.Lock()
+	defer s.recentMu.Unlock()
+
+	entry := RecentLaunch{
+		Name:      name,
+		ID:        id,
+		Type:      launchType,
+		Timestamp: time.Now().Unix(),
+	}
+
+	// Remove duplicate if already in list
+	filtered := []RecentLaunch{entry}
+	for _, r := range s.recentLaunches {
+		if r.ID != id {
+			filtered = append(filtered, r)
+		}
+	}
+	if len(filtered) > maxRecentLaunches {
+		filtered = filtered[:maxRecentLaunches]
+	}
+	s.recentLaunches = filtered
+
+	// Persist to disk
+	go s.saveRecentLaunches()
+}
+
+func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
+	s.recentMu.Lock()
+	list := make([]RecentLaunch, len(s.recentLaunches))
+	copy(list, s.recentLaunches)
+	s.recentMu.Unlock()
+
+	s.writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) saveRecentLaunches() {
+	dir, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	path := filepath.Join(dir, ".config", "boiler-room", "recent.json")
+	data, err := json.Marshal(s.recentLaunches)
+	if err != nil {
+		return
+	}
+	os.WriteFile(path, data, 0644)
+}
+
+func (s *Server) loadRecentLaunches() {
+	dir, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	path := filepath.Join(dir, ".config", "boiler-room", "recent.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var launches []RecentLaunch
+	if err := json.Unmarshal(data, &launches); err != nil {
+		return
+	}
+	s.recentLaunches = launches
 }
 
 // --- Helpers ---
