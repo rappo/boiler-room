@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 // App represents an installed non-Steam application (Flatpak, etc.)
@@ -82,16 +83,12 @@ func LaunchFlatpak(appID string) error {
 }
 
 // getDisplayEnv discovers display-related environment variables from the
-// running desktop session (gamescope, KDE, etc.) by reading /proc.
-// Returns env vars like DISPLAY=:0, WAYLAND_DISPLAY=wayland-1, etc.
+// running desktop session by reading /proc.
 //
-// Priority order:
-//  1. kwin_wayland / plasmashell (desktop mode — has WAYLAND_DISPLAY)
-//  2. gamescope (gaming mode — has DISPLAY for nested X)
-//  3. steam (fallback — usually has DISPLAY)
+// Strategy: scan all user-owned processes for WAYLAND_DISPLAY. If found,
+// use that process's env. If no Wayland session is found, fall back to
+// known process names (gamescope, steam) for X11 DISPLAY.
 func getDisplayEnv() []string {
-	// Compositor first (has Wayland env), then gaming mode, then Steam
-	targets := []string{"kwin_wayland", "plasmashell", "gamescope", "steam"}
 	wantedPrefixes := []string{
 		"DISPLAY=",
 		"WAYLAND_DISPLAY=",
@@ -100,15 +97,32 @@ func getDisplayEnv() []string {
 		"XAUTHORITY=",
 	}
 
+	uid := os.Getuid()
 	var bestEnv []string
 
-	for _, target := range targets {
-		out, err := exec.Command("pgrep", "-xo", target).Output()
+	// Scan /proc for any process with WAYLAND_DISPLAY
+	procEntries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+
+	for _, entry := range procEntries {
+		if !entry.IsDir() {
+			continue
+		}
+		// Only look at numeric PIDs
+		pid := entry.Name()
+		if pid[0] < '0' || pid[0] > '9' {
+			continue
+		}
+
+		// Check if it's our process (same UID)
+		info, err := entry.Info()
 		if err != nil {
 			continue
 		}
-		pid := strings.TrimSpace(string(out))
-		if pid == "" {
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || stat.Uid != uint32(uid) {
 			continue
 		}
 
@@ -119,10 +133,10 @@ func getDisplayEnv() []string {
 
 		var displayEnv []string
 		hasWayland := false
-		for _, entry := range strings.Split(string(envData), "\x00") {
+		for _, e := range strings.Split(string(envData), "\x00") {
 			for _, prefix := range wantedPrefixes {
-				if strings.HasPrefix(entry, prefix) {
-					displayEnv = append(displayEnv, entry)
+				if strings.HasPrefix(e, prefix) {
+					displayEnv = append(displayEnv, e)
 					if prefix == "WAYLAND_DISPLAY=" {
 						hasWayland = true
 					}
@@ -130,12 +144,12 @@ func getDisplayEnv() []string {
 			}
 		}
 
-		// If we found WAYLAND_DISPLAY, this is the best source — use it
+		// Found WAYLAND_DISPLAY — this is the best source, use it
 		if hasWayland {
 			return displayEnv
 		}
 
-		// Otherwise save as fallback and keep looking
+		// Track best fallback (most env vars found)
 		if len(displayEnv) > len(bestEnv) {
 			bestEnv = displayEnv
 		}
