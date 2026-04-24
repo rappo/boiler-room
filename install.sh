@@ -97,6 +97,7 @@ ExecStartPre=%h/.local/bin/boiler-room-ensure-sudoers
 ExecStart=%h/.local/bin/boiler-room-agent
 Restart=on-failure
 RestartSec=5
+TimeoutStopSec=3
 # Ensure Steam's environment is accessible
 Environment=HOME=%h
 Environment=XDG_RUNTIME_DIR=/run/user/%U
