@@ -10,13 +10,14 @@ import (
 
 // Shortcut represents a Non-Steam game shortcut from shortcuts.vdf.
 type Shortcut struct {
-	AppID     string `json:"appid"`
-	Name      string `json:"name"`
-	Exe       string `json:"exe,omitempty"`
-	StartDir  string `json:"start_dir,omitempty"`
-	Icon      string `json:"icon,omitempty"`
-	Tags      string `json:"tags,omitempty"`
-	FlatpakID string `json:"flatpak_id,omitempty"` // Extracted from Exe if it's a Flatpak shortcut
+	AppID         string `json:"appid"`
+	Name          string `json:"name"`
+	Exe           string `json:"exe,omitempty"`
+	LaunchOptions string `json:"launch_options,omitempty"`
+	StartDir      string `json:"start_dir,omitempty"`
+	Icon          string `json:"icon,omitempty"`
+	Tags          string `json:"tags,omitempty"`
+	FlatpakID     string `json:"flatpak_id,omitempty"` // Extracted from Exe/LaunchOptions if Flatpak
 }
 
 // ScanShortcuts reads Non-Steam game shortcuts from shortcuts.vdf.
@@ -108,10 +109,8 @@ func parseBinaryVDF(path string) ([]Shortcut, error) {
 				// Generate from name hash for consistency
 				shortcut.AppID = fmt.Sprintf("shortcut_%s", sanitizeForID(shortcut.Name))
 			}
-			// Extract Flatpak ID from exe if present
-			// Exe is typically: /usr/bin/flatpak run com.github.iwalton3.jellyfin-media-player
-			// or: flatpak run --command=... com.app.ID
-			shortcut.FlatpakID = extractFlatpakID(shortcut.Exe)
+			// Extract Flatpak ID from exe + launch options
+			shortcut.FlatpakID = extractFlatpakID(shortcut.Exe + " " + shortcut.LaunchOptions)
 			shortcuts = append(shortcuts, shortcut)
 		}
 	}
@@ -144,6 +143,8 @@ func readShortcutFields(r *vdfReader, s Shortcut) Shortcut {
 				s.StartDir = value
 			case "icon":
 				s.Icon = value
+			case "launchoptions":
+				s.LaunchOptions = value
 			}
 
 		case 0x02: // Int32 value
