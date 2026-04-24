@@ -62,32 +62,49 @@ class BoilerRoomQuickLaunchSelect(CoordinatorEntity, SelectEntity):
 
     @property
     def options(self) -> list[str]:
-        """Return the list of game names as select options."""
-        games = []
-        if self.coordinator.data:
-            games = self.coordinator.data.get("games", [])
-
-        # Build the game map and return names
+        """Return the list of game/app names as select options."""
         self._game_map = {}
         names = []
-        for game in games:
-            name = game.get("name", "")
-            appid = game.get("appid", "")
-            if name and appid:
-                self._game_map[name] = appid
-                names.append(name)
+
+        if self.coordinator.data:
+            # Steam games
+            for game in self.coordinator.data.get("games", []):
+                name = game.get("name", "")
+                appid = game.get("appid", "")
+                if name and appid:
+                    self._game_map[name] = ("game", appid)
+                    names.append(name)
+
+            # Flatpak apps
+            for app in self.coordinator.data.get("apps", []):
+                name = app.get("name", "")
+                app_id = app.get("id", "")
+                if name and app_id:
+                    label = f"[App] {name}"
+                    self._game_map[label] = ("app", app_id)
+                    names.append(label)
+
+            # Non-Steam shortcuts
+            for shortcut in self.coordinator.data.get("shortcuts", []):
+                name = shortcut.get("name", "")
+                appid = shortcut.get("appid", "")
+                if name and appid:
+                    label = f"[Shortcut] {name}"
+                    self._game_map[label] = ("game", appid)
+                    names.append(label)
 
         return names if names else ["No games found"]
 
     async def async_select_option(self, option: str) -> None:
-        """Handle selecting a game to launch."""
-        appid = self._game_map.get(option)
-        if not appid:
-            _LOGGER.warning("Selected game '%s' has no appid", option)
+        """Handle selecting a game/app to launch."""
+        entry = self._game_map.get(option)
+        if not entry:
+            _LOGGER.warning("Selected item '%s' not found in map", option)
             return
 
-        _LOGGER.info("Quick-launching game: %s (appid: %s)", option, appid)
-        result = await self._api.launch(appid=appid)
+        launch_type, target_id = entry
+        _LOGGER.info("Quick-launching: %s (type=%s, id=%s)", option, launch_type, target_id)
+        result = await self._api.launch(appid=target_id, launch_type=launch_type)
 
         if result.get("status") == "error":
             _LOGGER.error("Quick launch failed: %s", result.get("message"))

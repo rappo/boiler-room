@@ -19,6 +19,12 @@ NC='\033[0m' # No Color
 echo -e "${BLUE}🔥 Installing Boiler Room...${NC}"
 echo ""
 
+# 0. Stop existing service if running (binary can't be overwritten while in use)
+if systemctl --user is-active boiler-room &>/dev/null; then
+  echo -e "${YELLOW}→ Stopping existing service for upgrade...${NC}"
+  systemctl --user stop boiler-room
+fi
+
 # 1. Download binary
 echo -e "${YELLOW}→ Downloading agent binary...${NC}"
 mkdir -p "$INSTALL_DIR"
