@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Boiler Room",
+        "description": "Enter the IP address and port of your SteamOS device running the Boiler Room agent.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
+      },
+      "confirm": {
+        "title": "Confirm Device",
+        "description": "Found **{name}** at `{host}:{port}` with {game_count} games installed.\n\nAdd this device?"
+      }
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "cannot_connect": "Cannot connect to the Boiler Room agent. Is it running?",
+      "missing_unique_id": "The agent did not provide a device ID."
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the Boiler Room agent at the specified address."
+    }
+  }
+}

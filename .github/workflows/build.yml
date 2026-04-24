@@ -1,0 +1,51 @@
+name: Build Agent
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build
+        working-directory: ./agent
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+            -o ../boiler-room-agent-linux-amd64 \
+            ./cmd/boiler-room-agent/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: boiler-room-agent-linux-amd64
+          path: boiler-room-agent-linux-amd64
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: boiler-room-agent-linux-amd64
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: boiler-room-agent-linux-amd64
+          generate_release_notes: true

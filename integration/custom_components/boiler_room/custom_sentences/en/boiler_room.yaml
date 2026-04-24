@@ -1,0 +1,8 @@
+language: "en"
+intents:
+  BoilerRoomLaunchGame:
+    data:
+      - sentences:
+          - "(Launch|Play|Start|Open|Run|Boot up|Fire up) {game_name}"
+          - "Put on {game_name}"
+          - "(Launch|Play|Start|Open|Run) {game_name} on the (deck|steam machine|tv|living room|gaming pc)"

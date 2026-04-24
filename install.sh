@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Boiler Room — One-line installer for SteamOS
+# Usage: curl -fsSL https://raw.githubusercontent.com/rappo/boiler-room/main/install.sh | bash
+set -euo pipefail
+
+VERSION="${BOILER_ROOM_VERSION:-latest}"
+INSTALL_DIR="$HOME/.local/bin"
+CONFIG_DIR="$HOME/.config/boiler-room"
+SERVICE_DIR="$HOME/.config/systemd/user"
+BINARY="boiler-room-agent"
+REPO="rappo/boiler-room"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}🔥 Installing Boiler Room...${NC}"
+echo ""
+
+# 1. Download binary
+echo -e "${YELLOW}→ Downloading agent binary...${NC}"
+mkdir -p "$INSTALL_DIR"
+
+if [ "$VERSION" = "latest" ]; then
+  URL="https://github.com/$REPO/releases/latest/download/${BINARY}-linux-amd64"
+else
+  URL="https://github.com/$REPO/releases/download/v${VERSION}/${BINARY}-linux-amd64"
+fi
+
+if command -v curl &>/dev/null; then
+  curl -fsSL "$URL" -o "$INSTALL_DIR/$BINARY"
+elif command -v wget &>/dev/null; then
+  wget -q "$URL" -O "$INSTALL_DIR/$BINARY"
+else
+  echo -e "${RED}Error: curl or wget required${NC}"
+  exit 1
+fi
+
+chmod +x "$INSTALL_DIR/$BINARY"
+echo -e "${GREEN}  ✓ Binary installed to $INSTALL_DIR/$BINARY${NC}"
+
+# 2. Default config (don't overwrite existing)
+mkdir -p "$CONFIG_DIR"
+if [ ! -f "$CONFIG_DIR/config.yaml" ]; then
+  HOSTNAME=$(hostname)
+  cat > "$CONFIG_DIR/config.yaml" << EOF
+# Boiler Room Agent Configuration
+# This name appears in Home Assistant
+device_name: "$HOSTNAME"
+
+# Port for the REST API (default: 9451)
+api_port: 9451
+
+# Log level: debug, info, warn, error
+log_level: info
+EOF
+  echo -e "${GREEN}  ✓ Config created at $CONFIG_DIR/config.yaml${NC}"
+else
+  echo -e "${YELLOW}  ⊘ Config already exists, not overwriting${NC}"
+fi
+
+# 3. Systemd user service
+mkdir -p "$SERVICE_DIR"
+cat > "$SERVICE_DIR/boiler-room.service" << 'EOF'
+[Unit]
+Description=Boiler Room - Home Assistant bridge for SteamOS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/boiler-room-agent
+Restart=on-failure
+RestartSec=5
+# Ensure Steam's environment is accessible
+Environment=HOME=%h
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+
+[Install]
+WantedBy=default.target
+EOF
+echo -e "${GREEN}  ✓ Systemd service created${NC}"
+
+# 4. Enable and start
+echo -e "${YELLOW}→ Starting service...${NC}"
+systemctl --user daemon-reload
+systemctl --user enable --now boiler-room 2>/dev/null || true
+echo -e "${GREEN}  ✓ Service enabled and started${NC}"
+
+# 5. Enable linger (start service at boot, before GUI login)
+loginctl enable-linger "$(whoami)" 2>/dev/null || true
+echo -e "${GREEN}  ✓ Linger enabled (service starts at boot)${NC}"
+
+# 6. Add ~/.local/bin to PATH if not already there
+if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+  echo "" >> "$HOME/.bashrc"
+  echo '# Boiler Room agent' >> "$HOME/.bashrc"
+  echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+  echo -e "${GREEN}  ✓ Added ~/.local/bin to PATH${NC}"
+fi
+
+# Done!
+echo ""
+IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "unknown")
+PORT=$(grep 'api_port' "$CONFIG_DIR/config.yaml" 2>/dev/null | awk '{print $2}' || echo "9451")
+
+echo -e "${GREEN}════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}  ✅ Boiler Room is running!${NC}"
+echo -e ""
+echo -e "  ${BLUE}API:${NC}      http://$IP:$PORT/api/v1/status"
+echo -e "  ${BLUE}Config:${NC}   $CONFIG_DIR/config.yaml"
+echo -e "  ${BLUE}Service:${NC}  systemctl --user status boiler-room"
+echo -e ""
+echo -e "  Home Assistant will discover this device automatically."
+echo -e "  Or add it manually at: ${BLUE}$IP:$PORT${NC}"
+echo -e "${GREEN}════════════════════════════════════════════════════${NC}"

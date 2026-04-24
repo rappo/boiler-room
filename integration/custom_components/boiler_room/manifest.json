@@ -1,0 +1,13 @@
+{
+  "domain": "boiler_room",
+  "name": "Boiler Room",
+  "version": "0.1.0",
+  "documentation": "https://github.com/rappo/boiler-room",
+  "issue_tracker": "https://github.com/rappo/boiler-room/issues",
+  "dependencies": [],
+  "requirements": ["aiohttp>=3.9.0"],
+  "codeowners": ["@rappo"],
+  "iot_class": "local_polling",
+  "zeroconf": ["_boiler-room._tcp.local."],
+  "config_flow": true
+}
