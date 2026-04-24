@@ -14,9 +14,10 @@ import (
 	"github.com/rappo/boiler-room/agent/internal/plugins/jellyfin"
 	"github.com/rappo/boiler-room/agent/internal/plugins/youtube"
 	"github.com/rappo/boiler-room/agent/internal/system"
+	"github.com/rappo/boiler-room/agent/internal/updater"
 )
 
-var version = "0.2.0"
+var version = "0.3.0"
 
 func main() {
 	showVersion := flag.Bool("version", false, "Print version and exit")
@@ -82,6 +83,10 @@ func main() {
 		log.Printf("Warning: failed to register YouTube plugin: %v", err)
 	}
 
+	// Initialize self-updater
+	upd := updater.NewUpdater(cfg.RepoURL, version)
+	upd.StartPeriodicCheck()
+
 	// Start mDNS advertisement
 	stopMDNS, err := discovery.Advertise(cfg.DeviceName, cfg.APIPort, sysInfo.DeviceID, version)
 	if err != nil {
@@ -91,6 +96,6 @@ func main() {
 	}
 
 	// Start HTTP API server (blocks)
-	server := api.NewServer(scanner, sysInfo, pluginMgr, cfg.APIPort, cfg.DeviceName, version)
+	server := api.NewServer(scanner, sysInfo, pluginMgr, upd, cfg.APIPort, cfg.DeviceName, version)
 	log.Fatal(server.Start())
 }

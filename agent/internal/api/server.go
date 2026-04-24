@@ -12,6 +12,7 @@ import (
 	"github.com/rappo/boiler-room/agent/internal/games"
 	"github.com/rappo/boiler-room/agent/internal/plugins"
 	"github.com/rappo/boiler-room/agent/internal/system"
+	"github.com/rappo/boiler-room/agent/internal/updater"
 )
 
 // Server is the HTTP API server for the Boiler Room agent.
@@ -21,17 +22,21 @@ type Server struct {
 	flatpaks      []apps.App
 	shortcuts     []games.Shortcut
 	pluginManager *plugins.Manager
+	wsHub         *WSHub
+	updater       *updater.Updater
 	port          int
 	deviceName    string
 	version       string
 }
 
 // NewServer creates a new API server.
-func NewServer(scanner *games.Scanner, sysInfo *system.Info, pluginMgr *plugins.Manager, port int, deviceName, version string) *Server {
+func NewServer(scanner *games.Scanner, sysInfo *system.Info, pluginMgr *plugins.Manager, upd *updater.Updater, port int, deviceName, version string) *Server {
 	s := &Server{
 		scanner:       scanner,
 		sysInfo:       sysInfo,
 		pluginManager: pluginMgr,
+		wsHub:         NewWSHub(),
+		updater:       upd,
 		port:          port,
 		deviceName:    deviceName,
 		version:       version,
@@ -82,6 +87,13 @@ func (s *Server) Start() error {
 	// Phase 2: Plugins
 	mux.HandleFunc("GET /api/v1/plugins", s.handlePluginList)
 	mux.HandleFunc("POST /api/v1/plugins/{name}/action", s.handlePluginAction)
+
+	// Phase 3: WebSocket
+	mux.HandleFunc("/api/v1/ws", s.wsHub.HandleWebSocket)
+
+	// Phase 3: Update
+	mux.HandleFunc("GET /api/v1/update/check", s.handleUpdateCheck)
+	mux.HandleFunc("POST /api/v1/update/apply", s.handleUpdateApply)
 
 	// Health check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -290,6 +302,12 @@ func (s *Server) handleLaunchGame(w http.ResponseWriter, req launchRequest) {
 
 	log.Printf("Launched game: %s (AppID: %s)", game.Name, game.AppID)
 	s.writeJSON(w, http.StatusOK, launchResponse{Status: "launching", Game: game})
+
+	// Broadcast state change via WebSocket
+	s.wsHub.Broadcast(StateEvent{
+		Type: "game_launched",
+		Data: map[string]string{"name": game.Name, "appid": game.AppID},
+	})
 }
 
 func (s *Server) handleLaunchApp(w http.ResponseWriter, req launchRequest) {
@@ -507,6 +525,35 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// --- Update ---
+
+func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	if s.updater == nil {
+		s.writeJSON(w, http.StatusOK, map[string]interface{}{
+			"update_available": false,
+			"message":          "updater not configured",
+		})
+		return
+	}
+	info := s.updater.Info()
+	s.writeJSON(w, http.StatusOK, info)
+}
+
+func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
+	if s.updater == nil {
+		s.writeError(w, http.StatusBadRequest, "updater not configured")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]string{"status": "updating"})
+
+	go func() {
+		if err := s.updater.Update(); err != nil {
+			log.Printf("Update failed: %v", err)
+		}
+	}()
+}
+
 // --- Helpers ---
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -518,3 +565,4 @@ func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
 func (s *Server) writeError(w http.ResponseWriter, status int, msg string) {
 	s.writeJSON(w, status, map[string]string{"status": "error", "message": msg})
 }
+

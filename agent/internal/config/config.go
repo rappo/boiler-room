@@ -15,9 +15,12 @@ type Config struct {
 	LogLevel   string `yaml:"log_level"`
 
 	// Plugin settings (optional — plugins work without config)
-	JellyfinURL    string `yaml:"jellyfin_url"`
-	JellyfinAPIKey string `yaml:"jellyfin_api_key"`
+	JellyfinURL      string `yaml:"jellyfin_url"`
+	JellyfinAPIKey   string `yaml:"jellyfin_api_key"`
 	PreferredBrowser string `yaml:"preferred_browser"` // For YouTube plugin: "firefox", "chrome", or Flatpak ID
+
+	// Update settings
+	RepoURL string `yaml:"repo_url"` // GitHub/Forgejo repo URL for self-updates
 }
 
 // DefaultConfig returns a config with sensible defaults

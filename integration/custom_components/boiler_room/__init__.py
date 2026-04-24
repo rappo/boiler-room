@@ -38,6 +38,10 @@ async def async_setup_entry(
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Register voice command intent handlers
+    from .intents import async_setup_intents
+    await async_setup_intents(hass)
+
     return True
 
 
