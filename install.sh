@@ -77,6 +77,7 @@ RestartSec=5
 # Ensure Steam's environment is accessible
 Environment=HOME=%h
 Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus
 
 [Install]
 WantedBy=default.target
@@ -93,7 +94,21 @@ echo -e "${GREEN}  ✓ Service enabled and started${NC}"
 loginctl enable-linger "$(whoami)" 2>/dev/null || true
 echo -e "${GREEN}  ✓ Linger enabled (service starts at boot)${NC}"
 
-# 6. Add ~/.local/bin to PATH if not already there
+# 6. Sudoers rule for passwordless power control
+#    In gaming mode, Steam's D-Bus may not be accessible from the agent.
+#    This allows suspend/shutdown/reboot without polkit auth prompts.
+SUDOERS_FILE="/etc/sudoers.d/boiler-room"
+SUDOERS_RULE="$(whoami) ALL=(ALL) NOPASSWD: /usr/bin/systemctl suspend, /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot"
+if [ -f "$SUDOERS_FILE" ]; then
+  echo -e "${YELLOW}  ⊘ Sudoers rule already exists${NC}"
+else
+  echo "$SUDOERS_RULE" | sudo tee "$SUDOERS_FILE" > /dev/null 2>&1 && \
+    sudo chmod 440 "$SUDOERS_FILE" && \
+    echo -e "${GREEN}  ✓ Passwordless power control enabled${NC}" || \
+    echo -e "${YELLOW}  ⚠ Could not create sudoers rule (power control may require password)${NC}"
+fi
+
+# 7. Add ~/.local/bin to PATH if not already there
 if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
   echo "" >> "$HOME/.bashrc"
   echo '# Boiler Room agent' >> "$HOME/.bashrc"

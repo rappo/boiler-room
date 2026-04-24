@@ -51,58 +51,127 @@ func VolumeMute(mute bool) error {
 	return exec.Command("pactl", "set-sink-mute", "@DEFAULT_SINK@", val).Run()
 }
 
-// Suspend suspends the system via Steam's D-Bus interface.
-// This is preferred over raw systemctl because Steam properly saves game state.
-// Falls back to systemctl if the Steam D-Bus call fails.
+// Suspend suspends the system.
+// Fallback chain:
+//  1. Steam D-Bus (gaming mode — saves game state properly)
+//  2. sudo systemctl suspend (desktop mode — needs sudoers rule from install)
+//  3. systemctl suspend (last resort — may fail without polkit auth)
 func Suspend() error {
-	if err := steamDBusCall("Suspend"); err != nil {
-		log.Printf("Steam D-Bus suspend failed (%v), falling back to systemctl", err)
-		return exec.Command("systemctl", "suspend").Run()
-	}
-	return nil
+	return powerAction("Suspend", "suspend")
 }
 
-// Shutdown powers off the system via Steam's D-Bus interface.
+// Shutdown powers off the system.
 func Shutdown() error {
-	if err := steamDBusCall("Shutdown"); err != nil {
-		log.Printf("Steam D-Bus shutdown failed (%v), falling back to systemctl", err)
-		return exec.Command("systemctl", "poweroff").Run()
-	}
-	return nil
+	return powerAction("Shutdown", "poweroff")
 }
 
-// Reboot restarts the system via Steam's D-Bus interface.
+// Reboot restarts the system.
 func Reboot() error {
-	if err := steamDBusCall("Reboot"); err != nil {
-		log.Printf("Steam D-Bus reboot failed (%v), falling back to systemctl", err)
-		return exec.Command("systemctl", "reboot").Run()
+	return powerAction("Reboot", "reboot")
+}
+
+// powerAction tries multiple methods to execute a power command.
+func powerAction(dbusMethod, systemctlAction string) error {
+	// 1. Try Steam D-Bus (works in gaming mode)
+	if err := steamDBusCall(dbusMethod); err == nil {
+		log.Printf("Power action '%s' succeeded via Steam D-Bus", dbusMethod)
+		return nil
+	} else {
+		log.Printf("Steam D-Bus %s unavailable: %v", dbusMethod, err)
 	}
-	return nil
+
+	// 2. Try sudo systemctl (works in desktop mode with our sudoers rule)
+	if err := exec.Command("sudo", "-n", "systemctl", systemctlAction).Run(); err == nil {
+		log.Printf("Power action '%s' succeeded via sudo systemctl", systemctlAction)
+		return nil
+	} else {
+		log.Printf("sudo systemctl %s failed: %v", systemctlAction, err)
+	}
+
+	// 3. Last resort: raw systemctl (may prompt for polkit auth and fail)
+	log.Printf("Trying raw systemctl %s as last resort", systemctlAction)
+	return exec.Command("systemctl", systemctlAction).Run()
 }
 
 // steamDBusCall invokes a method on Steam's D-Bus Manager interface.
-// The critical detail: SSH sessions and systemd user services don't inherit
-// DBUS_SESSION_BUS_ADDRESS, so we must set it explicitly to the well-known
-// systemd user bus path (/run/user/<uid>/bus).
+// Uses --print-reply to get actual errors instead of silent fire-and-forget.
+//
+// In gaming mode, gamescope-session creates its own D-Bus session at a
+// different address than the standard user bus. We try:
+//  1. Steam's actual D-Bus address from /proc/<steam-pid>/environ
+//  2. The standard systemd user bus (/run/user/<uid>/bus)
 func steamDBusCall(method string) error {
-	uid := os.Getuid()
-	busAddr := fmt.Sprintf("unix:path=/run/user/%d/bus", uid)
+	busAddrs := findSteamDBusAddresses()
 
-	cmd := exec.Command(
-		"dbus-send",
-		"--session",
-		"--dest=com.valvesoftware.steam",
-		"--type=method_call",
-		fmt.Sprintf("/com/valvesoftware/steam/Manager"),
-		fmt.Sprintf("com.valvesoftware.steam.Manager.%s", method),
-	)
-	cmd.Env = append(os.Environ(), "DBUS_SESSION_BUS_ADDRESS="+busAddr)
+	var lastErr error
+	for _, busAddr := range busAddrs {
+		cmd := exec.Command(
+			"dbus-send",
+			"--session",
+			"--print-reply",
+			"--dest=com.valvesoftware.steam",
+			"--type=method_call",
+			"/com/valvesoftware/steam/Manager",
+			fmt.Sprintf("com.valvesoftware.steam.Manager.%s", method),
+		)
+		cmd.Env = append(os.Environ(), "DBUS_SESSION_BUS_ADDRESS="+busAddr)
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s: %w (output: %s)", method, err, string(output))
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		lastErr = fmt.Errorf("%s via %s: %w (output: %s)", method, busAddr, err, string(output))
 	}
-	return nil
+
+	if lastErr != nil {
+		return lastErr
+	}
+	return fmt.Errorf("no D-Bus addresses found for Steam")
+}
+
+// findSteamDBusAddresses returns candidate D-Bus session bus addresses.
+// Tries to read Steam's actual bus address from its process environment first.
+func findSteamDBusAddresses() []string {
+	var addrs []string
+
+	// Try to get Steam's actual D-Bus address from /proc
+	if steamAddr := steamDBusFromProc(); steamAddr != "" {
+		addrs = append(addrs, steamAddr)
+	}
+
+	// Standard systemd user bus as fallback
+	uid := os.Getuid()
+	stdAddr := fmt.Sprintf("unix:path=/run/user/%d/bus", uid)
+	addrs = append(addrs, stdAddr)
+
+	return addrs
+}
+
+// steamDBusFromProc reads DBUS_SESSION_BUS_ADDRESS from Steam's /proc environ.
+func steamDBusFromProc() string {
+	// Find steam PID
+	out, err := exec.Command("pgrep", "-xo", "steam").Output()
+	if err != nil {
+		return ""
+	}
+	pid := strings.TrimSpace(string(out))
+	if pid == "" {
+		return ""
+	}
+
+	// Read its environment
+	envData, err := os.ReadFile(fmt.Sprintf("/proc/%s/environ", pid))
+	if err != nil {
+		return ""
+	}
+
+	for _, entry := range strings.Split(string(envData), "\x00") {
+		if strings.HasPrefix(entry, "DBUS_SESSION_BUS_ADDRESS=") {
+			return strings.TrimPrefix(entry, "DBUS_SESSION_BUS_ADDRESS=")
+		}
+	}
+
+	return ""
 }
 
 // CPUTemp reads CPU temperature in degrees Celsius.
