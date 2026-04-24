@@ -84,9 +84,24 @@ func LaunchFlatpak(appID string) error {
 // getDisplayEnv discovers display-related environment variables from the
 // running desktop session (gamescope, KDE, etc.) by reading /proc.
 // Returns env vars like DISPLAY=:0, WAYLAND_DISPLAY=wayland-1, etc.
+//
+// Priority order:
+//  1. kwin_wayland / plasmashell (desktop mode — has WAYLAND_DISPLAY)
+//  2. gamescope (gaming mode — has DISPLAY for nested X)
+//  3. steam (fallback — usually has DISPLAY)
 func getDisplayEnv() []string {
-	// Try to find a session process (gamescope, kwin, or steam)
-	targets := []string{"gamescope", "kwin_wayland", "steam"}
+	// Compositor first (has Wayland env), then gaming mode, then Steam
+	targets := []string{"kwin_wayland", "plasmashell", "gamescope", "steam"}
+	wantedPrefixes := []string{
+		"DISPLAY=",
+		"WAYLAND_DISPLAY=",
+		"XDG_RUNTIME_DIR=",
+		"DBUS_SESSION_BUS_ADDRESS=",
+		"XAUTHORITY=",
+	}
+
+	var bestEnv []string
+
 	for _, target := range targets {
 		out, err := exec.Command("pgrep", "-xo", target).Output()
 		if err != nil {
@@ -103,23 +118,30 @@ func getDisplayEnv() []string {
 		}
 
 		var displayEnv []string
+		hasWayland := false
 		for _, entry := range strings.Split(string(envData), "\x00") {
-			for _, prefix := range []string{
-				"DISPLAY=",
-				"WAYLAND_DISPLAY=",
-				"XDG_RUNTIME_DIR=",
-				"DBUS_SESSION_BUS_ADDRESS=",
-			} {
+			for _, prefix := range wantedPrefixes {
 				if strings.HasPrefix(entry, prefix) {
 					displayEnv = append(displayEnv, entry)
+					if prefix == "WAYLAND_DISPLAY=" {
+						hasWayland = true
+					}
 				}
 			}
 		}
-		if len(displayEnv) > 0 {
+
+		// If we found WAYLAND_DISPLAY, this is the best source — use it
+		if hasWayland {
 			return displayEnv
 		}
+
+		// Otherwise save as fallback and keep looking
+		if len(displayEnv) > len(bestEnv) {
+			bestEnv = displayEnv
+		}
 	}
-	return nil
+
+	return bestEnv
 }
 
 // LaunchURL opens a URL in the default browser or a specified Flatpak browser.
