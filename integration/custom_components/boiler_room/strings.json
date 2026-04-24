@@ -10,12 +10,16 @@
       },
       "ssh_credentials": {
         "title": "Install via SSH",
-        "description": "Enter the SSH connection details for your SteamOS device. The agent will be downloaded and installed automatically.\n\n{error_detail}",
+        "description": "Enter the SSH connection details for your SteamOS device. The agent will be downloaded and installed automatically.",
         "data": {
           "host": "SteamOS device IP address",
           "ssh_username": "Username",
           "ssh_password": "Password (leave blank for SSH key auth)"
         }
+      },
+      "ssh_error": {
+        "title": "❌ Installation Failed",
+        "description": "**Error:** {error_message}\n\n**Output:**\n```\n{error_output}\n```\n\nClick Submit to go back and try again."
       },
       "manual": {
         "title": "Connect to Existing Agent",
@@ -37,7 +41,7 @@
     },
     "error": {
       "cannot_connect": "Cannot connect to the Boiler Room agent at the specified address.",
-      "ssh_install_failed": "SSH installation failed. Check details above and try again.",
+      "ssh_install_failed": "SSH installation failed.",
       "agent_not_responding": "Agent was installed but is not responding. Check the device."
     }
   }

@@ -44,6 +44,8 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
         self._app_count: int = 0
         self._ssh_username: str = "deck"
         self._ssh_password: str = ""
+        self._ssh_error_message: str = ""
+        self._ssh_error_output: str = ""
 
     # ─── Step 1: Choose setup method ───
 
@@ -100,16 +102,12 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
-            description_placeholders={
-                "error_detail": "",
-            },
         )
 
     async def async_step_ssh_install(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Execute the SSH installation."""
-        errors: dict[str, str] = {}
 
         # Run the install
         result = await install_via_ssh(
@@ -121,24 +119,9 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
         if not result["success"]:
             _LOGGER.error("SSH install failed: %s", result["message"])
             _LOGGER.error("SSH install output: %s", result.get("output", ""))
-            errors["base"] = "ssh_install_failed"
-            detail = result["message"]
-            if result.get("output"):
-                detail += f"\n\nOutput:\n```\n{result['output'][-500:]}\n```"
-            return self.async_show_form(
-                step_id="ssh_credentials",
-                data_schema=vol.Schema(
-                    {
-                        vol.Required(CONF_HOST, default=self._host): str,
-                        vol.Optional(CONF_SSH_USERNAME, default=self._ssh_username): str,
-                        vol.Optional(CONF_SSH_PASSWORD, default=""): str,
-                    }
-                ),
-                errors=errors,
-                description_placeholders={
-                    "error_detail": detail,
-                },
-            )
+            self._ssh_error_message = result["message"]
+            self._ssh_error_output = result.get("output", "")
+            return await self.async_step_ssh_error()
 
         # Install succeeded — wait for the agent API to come online
         _LOGGER.info("Agent installed, waiting for API to come online...")
@@ -152,18 +135,9 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
             await asyncio.sleep(2)
         else:
             await api.close()
-            errors["base"] = "agent_not_responding"
-            return self.async_show_form(
-                step_id="ssh_credentials",
-                data_schema=vol.Schema(
-                    {
-                        vol.Required(CONF_HOST, default=self._host): str,
-                        vol.Optional(CONF_SSH_USERNAME, default=self._ssh_username): str,
-                        vol.Optional(CONF_SSH_PASSWORD, default=""): str,
-                    }
-                ),
-                errors=errors,
-            )
+            self._ssh_error_message = "Agent was installed but is not responding on port 9451"
+            self._ssh_error_output = "The install appeared to succeed, but the agent API did not come online within 30 seconds."
+            return await self.async_step_ssh_error()
 
         # Agent is online — fetch status
         try:
@@ -184,6 +158,26 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
             )
 
         return await self.async_step_confirm()
+
+    async def async_step_ssh_error(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show SSH install error details with a retry button."""
+        if user_input is not None:
+            # User clicked retry
+            return await self.async_step_ssh_credentials()
+
+        # Build a clear error description
+        output_snippet = self._ssh_error_output[-1000:] if self._ssh_error_output else "No output captured"
+
+        return self.async_show_form(
+            step_id="ssh_error",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "error_message": self._ssh_error_message,
+                "error_output": output_snippet,
+            },
+        )
 
     # ─── Manual Setup Path ───
 
