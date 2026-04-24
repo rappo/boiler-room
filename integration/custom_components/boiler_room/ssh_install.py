@@ -16,11 +16,11 @@ INSTALL_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/boiler-room"
 SERVICE_DIR="$HOME/.config/systemd/user"
 BINARY="boiler-room-agent"
-REPO="rappo/boiler-room"
+REPO_BASE="http://192.168.1.50:3210/rappo/boiler-room"
 
 # Download binary
 mkdir -p "$INSTALL_DIR"
-URL="https://github.com/$REPO/releases/latest/download/${BINARY}-linux-amd64"
+URL="${REPO_BASE}/releases/download/v0.3.0/${BINARY}-linux-amd64"
 if command -v curl &>/dev/null; then
   curl -fsSL "$URL" -o "$INSTALL_DIR/$BINARY"
 elif command -v wget &>/dev/null; then

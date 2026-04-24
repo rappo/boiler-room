@@ -8,7 +8,7 @@ INSTALL_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/boiler-room"
 SERVICE_DIR="$HOME/.config/systemd/user"
 BINARY="boiler-room-agent"
-REPO="rappo/boiler-room"
+REPO_BASE="http://192.168.1.50:3210/rappo/boiler-room"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -24,9 +24,9 @@ echo -e "${YELLOW}→ Downloading agent binary...${NC}"
 mkdir -p "$INSTALL_DIR"
 
 if [ "$VERSION" = "latest" ]; then
-  URL="https://github.com/$REPO/releases/latest/download/${BINARY}-linux-amd64"
+  URL="${REPO_BASE}/releases/download/v0.3.0/${BINARY}-linux-amd64"
 else
-  URL="https://github.com/$REPO/releases/download/v${VERSION}/${BINARY}-linux-amd64"
+  URL="${REPO_BASE}/releases/download/v${VERSION}/${BINARY}-linux-amd64"
 fi
 
 if command -v curl &>/dev/null; then
