@@ -63,6 +63,21 @@ fi
 
 # 3. Systemd user service
 mkdir -p "$SERVICE_DIR"
+
+# Helper script to ensure sudoers rule survives SteamOS updates.
+# /etc/sudoers.d/ can be wiped on major OS updates, but ~/.local/bin/ persists.
+cat > "$INSTALL_DIR/boiler-room-ensure-sudoers" << 'SCRIPT'
+#!/bin/bash
+# Recreates the sudoers rule if missing (e.g., after a SteamOS update).
+SUDOERS_FILE="/etc/sudoers.d/boiler-room"
+if [ ! -f "$SUDOERS_FILE" ]; then
+  USER=$(whoami)
+  echo "$USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl suspend, /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot" | sudo tee "$SUDOERS_FILE" > /dev/null 2>&1
+  sudo chmod 440 "$SUDOERS_FILE" 2>/dev/null
+fi
+SCRIPT
+chmod +x "$INSTALL_DIR/boiler-room-ensure-sudoers"
+
 cat > "$SERVICE_DIR/boiler-room.service" << 'EOF'
 [Unit]
 Description=Boiler Room - Home Assistant bridge for SteamOS
@@ -71,6 +86,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# Ensure sudoers rule exists (survives SteamOS updates)
+ExecStartPre=%h/.local/bin/boiler-room-ensure-sudoers
 ExecStart=%h/.local/bin/boiler-room-agent
 Restart=on-failure
 RestartSec=5
