@@ -2,6 +2,7 @@ package system
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,19 +51,58 @@ func VolumeMute(mute bool) error {
 	return exec.Command("pactl", "set-sink-mute", "@DEFAULT_SINK@", val).Run()
 }
 
-// Suspend suspends the system.
+// Suspend suspends the system via Steam's D-Bus interface.
+// This is preferred over raw systemctl because Steam properly saves game state.
+// Falls back to systemctl if the Steam D-Bus call fails.
 func Suspend() error {
-	return exec.Command("systemctl", "suspend").Run()
+	if err := steamDBusCall("Suspend"); err != nil {
+		log.Printf("Steam D-Bus suspend failed (%v), falling back to systemctl", err)
+		return exec.Command("systemctl", "suspend").Run()
+	}
+	return nil
 }
 
-// Shutdown powers off the system.
+// Shutdown powers off the system via Steam's D-Bus interface.
 func Shutdown() error {
-	return exec.Command("systemctl", "poweroff").Run()
+	if err := steamDBusCall("Shutdown"); err != nil {
+		log.Printf("Steam D-Bus shutdown failed (%v), falling back to systemctl", err)
+		return exec.Command("systemctl", "poweroff").Run()
+	}
+	return nil
 }
 
-// Reboot restarts the system.
+// Reboot restarts the system via Steam's D-Bus interface.
 func Reboot() error {
-	return exec.Command("systemctl", "reboot").Run()
+	if err := steamDBusCall("Reboot"); err != nil {
+		log.Printf("Steam D-Bus reboot failed (%v), falling back to systemctl", err)
+		return exec.Command("systemctl", "reboot").Run()
+	}
+	return nil
+}
+
+// steamDBusCall invokes a method on Steam's D-Bus Manager interface.
+// The critical detail: SSH sessions and systemd user services don't inherit
+// DBUS_SESSION_BUS_ADDRESS, so we must set it explicitly to the well-known
+// systemd user bus path (/run/user/<uid>/bus).
+func steamDBusCall(method string) error {
+	uid := os.Getuid()
+	busAddr := fmt.Sprintf("unix:path=/run/user/%d/bus", uid)
+
+	cmd := exec.Command(
+		"dbus-send",
+		"--session",
+		"--dest=com.valvesoftware.steam",
+		"--type=method_call",
+		fmt.Sprintf("/com/valvesoftware/steam/Manager"),
+		fmt.Sprintf("com.valvesoftware.steam.Manager.%s", method),
+	)
+	cmd.Env = append(os.Environ(), "DBUS_SESSION_BUS_ADDRESS="+busAddr)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %w (output: %s)", method, err, string(output))
+	}
+	return nil
 }
 
 // CPUTemp reads CPU temperature in degrees Celsius.
