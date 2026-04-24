@@ -44,7 +44,7 @@ echo -e "${GREEN}  ✓ Binary installed to $INSTALL_DIR/$BINARY${NC}"
 # 2. Default config (don't overwrite existing)
 mkdir -p "$CONFIG_DIR"
 if [ ! -f "$CONFIG_DIR/config.yaml" ]; then
-  HOSTNAME=$(hostname)
+  HOSTNAME=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || uname -n 2>/dev/null || echo "SteamOS Device")
   cat > "$CONFIG_DIR/config.yaml" << EOF
 # Boiler Room Agent Configuration
 # This name appears in Home Assistant
@@ -135,7 +135,7 @@ fi
 
 # Done!
 echo ""
-IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "unknown")
+IP=$(hostname -I 2>/dev/null | awk '{print $1}' || ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}' || echo "unknown")
 PORT=$(grep 'api_port' "$CONFIG_DIR/config.yaml" 2>/dev/null | awk '{print $2}' || echo "9451")
 
 echo -e "${GREEN}════════════════════════════════════════════════════${NC}"
