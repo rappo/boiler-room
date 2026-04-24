@@ -335,25 +335,23 @@ func (s *Server) handleLaunchApp(w http.ResponseWriter, req launchRequest) {
 		return
 	}
 
-	// In gaming mode, try launching via Steam shortcut first.
-	// Steam manages the display context (gamescope), so this avoids
-	// the impossible env injection problem with flatpak run.
-	if system.IsGamingMode() {
-		for _, shortcut := range s.shortcuts {
-			if shortcut.FlatpakID == flatpakID {
-				log.Printf("Gaming mode: launching app %s via Steam shortcut (appid %s)", flatpakID, shortcut.AppID)
-				if err := games.Launch(shortcut.AppID); err == nil {
-					s.writeJSON(w, http.StatusOK, launchResponse{
-						Status: "launching",
-						App:    &apps.App{ID: flatpakID, Name: shortcut.Name, Type: "flatpak"},
-					})
-					return
-				}
+	// Try launching via Steam shortcut first if one exists.
+	// Steam manages the display context (gamescope/desktop), so this
+	// is more reliable than direct flatpak run from a systemd service.
+	for _, shortcut := range s.shortcuts {
+		if shortcut.FlatpakID == flatpakID {
+			log.Printf("Launching app %s via Steam shortcut '%s' (appid %s)", flatpakID, shortcut.Name, shortcut.AppID)
+			if err := games.Launch(shortcut.AppID); err == nil {
+				s.writeJSON(w, http.StatusOK, launchResponse{
+					Status: "launching",
+					App:    &apps.App{ID: flatpakID, Name: shortcut.Name, Type: "flatpak"},
+				})
+				return
 			}
 		}
 	}
 
-	// Direct Flatpak launch (works in desktop mode)
+	// Fallback: direct Flatpak launch (no matching shortcut)
 	if err := apps.LaunchFlatpak(flatpakID); err != nil {
 		s.writeJSON(w, http.StatusInternalServerError, launchResponse{
 			Status: "error", Message: "Failed to launch app: " + err.Error(),
@@ -361,7 +359,7 @@ func (s *Server) handleLaunchApp(w http.ResponseWriter, req launchRequest) {
 		return
 	}
 
-	log.Printf("Launched app: %s", flatpakID)
+	log.Printf("Launched app (direct): %s", flatpakID)
 	s.writeJSON(w, http.StatusOK, launchResponse{
 		Status: "launching",
 		App:    &apps.App{ID: flatpakID, Name: req.Target, Type: "flatpak"},
