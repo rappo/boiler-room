@@ -17,10 +17,6 @@
           "ssh_password": "Password (leave blank for SSH key auth)"
         }
       },
-      "ssh_error": {
-        "title": "Installation Failed",
-        "description": "**Error:** {error_message}\n\n**Output:**\n{error_output}\n\nClick Submit to go back and try again."
-      },
       "manual": {
         "title": "Connect to Existing Agent",
         "description": "Enter the IP address and port of your SteamOS device running the Boiler Room agent.",
@@ -37,12 +33,12 @@
     "abort": {
       "already_configured": "This device is already configured.",
       "cannot_connect": "Cannot connect to the Boiler Room agent. Is it running?",
-      "missing_unique_id": "The agent did not provide a device ID."
+      "missing_unique_id": "The agent did not provide a device ID.",
+      "ssh_install_failed": "SSH installation failed: {error_detail}",
+      "agent_not_responding": "Agent not responding: {error_detail}"
     },
     "error": {
-      "cannot_connect": "Cannot connect to the Boiler Room agent at the specified address.",
-      "ssh_install_failed": "SSH installation failed.",
-      "agent_not_responding": "Agent was installed but is not responding. Check the device."
+      "cannot_connect": "Cannot connect to the Boiler Room agent at the specified address."
     }
   }
 }
