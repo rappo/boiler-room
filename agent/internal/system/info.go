@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"time"
@@ -95,28 +96,11 @@ func (i *Info) getIPAddress() string {
 	return localAddr.IP.String()
 }
 
-// IsGamingMode attempts to detect if SteamOS is in Gaming Mode.
-// Checks for the gamescope process, which runs the Gaming Mode compositor.
+// IsGamingMode detects if SteamOS is in Gaming Mode by checking for gamescope.
 func IsGamingMode() bool {
-	data, err := os.ReadFile("/proc/1/cmdline")
+	out, err := exec.Command("pgrep", "-x", "gamescope").Output()
 	if err != nil {
 		return false
 	}
-	// In Gaming Mode, gamescope-session is typically running
-	entries, _ := os.ReadDir("/proc")
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%s/comm", entry.Name()))
-		if err != nil {
-			continue
-		}
-		comm := strings.TrimSpace(string(cmdline))
-		if comm == "gamescope" || comm == "gamescope-ses" {
-			return true
-		}
-	}
-	_ = data
-	return false
+	return strings.TrimSpace(string(out)) != ""
 }
