@@ -37,7 +37,7 @@
     },
     "error": {
       "cannot_connect": "Cannot connect to the Boiler Room agent at the specified address.",
-      "ssh_install_failed": "SSH installation failed. Check your credentials and try again.",
+      "ssh_install_failed": "SSH installation failed. Check details above and try again.",
       "agent_not_responding": "Agent was installed but is not responding. Check the device."
     }
   }

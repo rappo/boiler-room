@@ -117,7 +117,11 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if not result["success"]:
             _LOGGER.error("SSH install failed: %s", result["message"])
+            _LOGGER.error("SSH install output: %s", result.get("output", ""))
             errors["base"] = "ssh_install_failed"
+            detail = result["message"]
+            if result.get("output"):
+                detail += f"\n\nOutput:\n```\n{result['output'][-500:]}\n```"
             return self.async_show_form(
                 step_id="ssh_credentials",
                 data_schema=vol.Schema(
@@ -129,7 +133,7 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
                 ),
                 errors=errors,
                 description_placeholders={
-                    "error_detail": result["message"],
+                    "error_detail": detail,
                 },
             )
 

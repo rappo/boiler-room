@@ -108,7 +108,11 @@ async def install_via_ssh(
         async with asyncssh.connect(**connect_kwargs) as conn:
             _LOGGER.info("Connected. Running install script...")
             result = await asyncio.wait_for(
-                conn.run(f"bash -c '{INSTALL_COMMANDS}'", check=False),
+                conn.run(
+                    "bash -s",
+                    input=INSTALL_COMMANDS,
+                    check=False,
+                ),
                 timeout=120,  # 2 minute timeout for download + install
             )
 
