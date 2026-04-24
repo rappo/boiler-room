@@ -38,6 +38,17 @@ intents:
   BoilerRoomSystemControl:
     data:
       - sentences:
-          - "Turn off the (deck|steam machine|gaming pc)"
-          - "Suspend the (deck|steam machine|gaming pc)"
+          - "(Suspend|Sleep) the (deck|steam machine|gaming pc)"
+          - "Put the (deck|steam machine|gaming pc) to sleep"
+        slots:
+          action: "suspend"
+      - sentences:
+          - "(Turn off|Shut down|Shutdown|Power off) the (deck|steam machine|gaming pc)"
+        slots:
+          action: "shutdown"
+      - sentences:
+          - "(Reboot|Restart) the (deck|steam machine|gaming pc)"
+        slots:
+          action: "reboot"
+      - sentences:
           - "(Set|Change) (deck|steam machine) volume to {volume}"
