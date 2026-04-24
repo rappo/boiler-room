@@ -111,18 +111,21 @@ echo -e "${GREEN}  ✓ Service enabled and started${NC}"
 loginctl enable-linger "$(whoami)" 2>/dev/null || true
 echo -e "${GREEN}  ✓ Linger enabled (service starts at boot)${NC}"
 
-# 6. Sudoers rule for passwordless power control
+# 6. Sudoers rule for passwordless power control (optional)
 #    In gaming mode, Steam's D-Bus may not be accessible from the agent.
 #    This allows suspend/shutdown/reboot without polkit auth prompts.
+#    Uses sudo -n to avoid blocking on password prompt.
 SUDOERS_FILE="/etc/sudoers.d/boiler-room"
 SUDOERS_RULE="$(whoami) ALL=(ALL) NOPASSWD: /usr/bin/systemctl suspend, /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot"
 if [ -f "$SUDOERS_FILE" ]; then
   echo -e "${YELLOW}  ⊘ Sudoers rule already exists${NC}"
 else
-  echo "$SUDOERS_RULE" | sudo tee "$SUDOERS_FILE" > /dev/null 2>&1 && \
-    sudo chmod 440 "$SUDOERS_FILE" && \
-    echo -e "${GREEN}  ✓ Passwordless power control enabled${NC}" || \
-    echo -e "${YELLOW}  ⚠ Could not create sudoers rule (power control may require password)${NC}"
+  if echo "$SUDOERS_RULE" | sudo -n tee "$SUDOERS_FILE" > /dev/null 2>&1 && \
+     sudo -n chmod 440 "$SUDOERS_FILE" 2>/dev/null; then
+    echo -e "${GREEN}  ✓ Passwordless power control enabled${NC}"
+  else
+    echo -e "${YELLOW}  ⊘ Skipped sudoers rule (no passwordless sudo). Power control may require manual setup.${NC}"
+  fi
 fi
 
 # 7. Add ~/.local/bin to PATH if not already there
