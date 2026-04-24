@@ -2,6 +2,7 @@ package apps
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"os/exec"
 	"sort"
@@ -63,12 +64,20 @@ func ScanFlatpaks() ([]App, error) {
 // GUI apps need display environment variables that the systemd service
 // doesn't have. We discover them from the running desktop session.
 func LaunchFlatpak(appID string) error {
+	displayEnv := getDisplayEnv()
+	log.Printf("LaunchFlatpak(%s): injecting display env: %v", appID, displayEnv)
+
 	cmd := exec.Command("flatpak", "run", appID)
-	cmd.Env = append(cmd.Environ(), getDisplayEnv()...)
+	cmd.Env = append(os.Environ(), displayEnv...)
 	if err := cmd.Start(); err != nil {
+		log.Printf("LaunchFlatpak(%s): Start() failed: %v", appID, err)
 		return err
 	}
-	go func() { _ = cmd.Wait() }()
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			log.Printf("LaunchFlatpak(%s): process exited with error: %v", appID, err)
+		}
+	}()
 	return nil
 }
 
