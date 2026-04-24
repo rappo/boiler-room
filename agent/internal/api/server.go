@@ -341,7 +341,7 @@ func (s *Server) handleLaunchApp(w http.ResponseWriter, req launchRequest) {
 	for _, shortcut := range s.shortcuts {
 		if shortcut.FlatpakID == flatpakID {
 			log.Printf("Launching app %s via Steam shortcut '%s' (appid %s)", flatpakID, shortcut.Name, shortcut.AppID)
-			if err := games.Launch(shortcut.AppID); err == nil {
+			if err := games.LaunchShortcut(shortcut.AppID); err == nil {
 				s.writeJSON(w, http.StatusOK, launchResponse{
 					Status: "launching",
 					App:    &apps.App{ID: flatpakID, Name: shortcut.Name, Type: "flatpak"},
