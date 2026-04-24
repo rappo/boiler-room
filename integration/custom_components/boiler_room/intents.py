@@ -113,7 +113,11 @@ async def async_setup_intents(hass: HomeAssistant) -> None:
 
 
 class BoilerRoomLaunchGameIntent(intent.IntentHandler):
-    """Handle the BoilerRoomLaunchGame intent."""
+    """Handle the BoilerRoomLaunchGame intent.
+
+    Searches games first, then falls back to apps (Flatpaks).
+    This way 'launch Jellyfin' and 'launch Balatro' both work.
+    """
 
     intent_type = "BoilerRoomLaunchGame"
 
@@ -128,38 +132,52 @@ class BoilerRoomLaunchGameIntent(intent.IntentHandler):
             return response
 
         # Find the first available Boiler Room device
-        api, games, aliases = _get_device_context(hass)
+        api, games, apps, aliases = _get_device_context(hass)
         if not api:
             response = intent_obj.create_response()
             response.async_set_speech("No SteamOS device is connected.")
             return response
 
-        # Fuzzy match the game
+        # 1. Try matching against Steam games
         game = fuzzy_match_game(game_name, games, aliases)
-
-        if not game:
+        if game:
+            result = await api.launch(appid=game["appid"])
             response = intent_obj.create_response()
-            response.async_set_speech(
-                f"I couldn't find a game matching '{game_name}'. "
-                f"You have {len(games)} games installed."
-            )
+            if result.get("status") == "launching":
+                response.async_set_speech(f"Launching {game['name']}.")
+            else:
+                response.async_set_speech(
+                    f"Failed to launch {game['name']}: {result.get('message', 'unknown error')}"
+                )
             return response
 
-        # Launch it
-        result = await api.launch(appid=game["appid"])
+        # 2. Try matching against Flatpak apps
+        app = _fuzzy_match_app(game_name, apps)
+        if app:
+            result = await api.launch(appid=app["id"], launch_type="app")
+            response = intent_obj.create_response()
+            if result.get("status") == "launching":
+                response.async_set_speech(f"Opening {app['name']}.")
+            else:
+                response.async_set_speech(
+                    f"Failed to open {app['name']}: {result.get('message', 'unknown error')}"
+                )
+            return response
 
+        # Nothing found
         response = intent_obj.create_response()
-        if result.get("status") == "launching":
-            response.async_set_speech(f"Launching {game['name']}.")
-        else:
-            response.async_set_speech(
-                f"Failed to launch {game['name']}: {result.get('message', 'unknown error')}"
-            )
+        response.async_set_speech(
+            f"I couldn't find a game or app matching '{game_name}'. "
+            f"You have {len(games)} games and {len(apps)} apps installed."
+        )
         return response
 
 
 class BoilerRoomOpenAppIntent(intent.IntentHandler):
-    """Handle the BoilerRoomOpenApp intent."""
+    """Handle the BoilerRoomOpenApp intent.
+
+    Searches apps first, then falls back to games.
+    """
 
     intent_type = "BoilerRoomOpenApp"
 
@@ -173,21 +191,41 @@ class BoilerRoomOpenAppIntent(intent.IntentHandler):
             response.async_set_speech("Which app would you like to open?")
             return response
 
-        api, _, _ = _get_device_context(hass)
+        api, games, apps, _ = _get_device_context(hass)
         if not api:
             response = intent_obj.create_response()
             response.async_set_speech("No SteamOS device is connected.")
             return response
 
-        result = await api.launch(target=app_name, launch_type="app")
+        # 1. Try matching against Flatpak apps first
+        app = _fuzzy_match_app(app_name, apps)
+        if app:
+            result = await api.launch(appid=app["id"], launch_type="app")
+            response = intent_obj.create_response()
+            if result.get("status") == "launching":
+                response.async_set_speech(f"Opening {app['name']}.")
+            else:
+                response.async_set_speech(
+                    f"Failed to open {app['name']}: {result.get('message', 'unknown error')}"
+                )
+            return response
 
+        # 2. Fall back to games
+        game = fuzzy_match_game(app_name, games)
+        if game:
+            result = await api.launch(appid=game["appid"])
+            response = intent_obj.create_response()
+            if result.get("status") == "launching":
+                response.async_set_speech(f"Launching {game['name']}.")
+            else:
+                response.async_set_speech(
+                    f"Failed to launch {game['name']}: {result.get('message', 'unknown error')}"
+                )
+            return response
+
+        # Nothing found
         response = intent_obj.create_response()
-        if result.get("status") == "launching":
-            response.async_set_speech(f"Opening {app_name}.")
-        else:
-            response.async_set_speech(
-                f"Couldn't find an app named {app_name}."
-            )
+        response.async_set_speech(f"Couldn't find an app or game named {app_name}.")
         return response
 
 
@@ -202,7 +240,7 @@ class BoilerRoomSystemControlIntent(intent.IntentHandler):
         action = intent_obj.slots.get("action", {}).get("value", "").lower()
         volume = intent_obj.slots.get("volume", {}).get("value")
 
-        api, _, _ = _get_device_context(hass)
+        api, _, _, _ = _get_device_context(hass)
         if not api:
             response = intent_obj.create_response()
             response.async_set_speech("No SteamOS device is connected.")
@@ -232,17 +270,42 @@ class BoilerRoomSystemControlIntent(intent.IntentHandler):
         return response
 
 
+def _fuzzy_match_app(
+    query: str,
+    apps: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Fuzzy match an app name against installed Flatpak apps."""
+    query_lower = query.lower().strip()
+    if not query_lower:
+        return None
+
+    # Exact match
+    for app in apps:
+        if app.get("name", "").lower() == query_lower:
+            return app
+
+    # Substring match
+    matches = [a for a in apps if query_lower in a.get("name", "").lower()]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        return min(matches, key=lambda a: len(a.get("name", "")))
+
+    return None
+
+
 def _get_device_context(
     hass: HomeAssistant,
-) -> tuple[Any, list[dict], dict[str, str] | None]:
-    """Get the API client, game list, and aliases from the first available device."""
+) -> tuple[Any, list[dict], list[dict], dict[str, str] | None]:
+    """Get the API client, game list, app list, and aliases from the first available device."""
     domain_data = hass.data.get(DOMAIN, {})
     for entry_data in domain_data.values():
         api = entry_data.get("api")
         coordinator = entry_data.get("coordinator")
         if api and coordinator and coordinator.data:
             games = coordinator.data.get("games", [])
+            apps = coordinator.data.get("apps", [])
             # Get user-configured aliases from options
             aliases = entry_data.get("aliases")
-            return api, games, aliases
-    return None, [], None
+            return api, games, apps, aliases
+    return None, [], [], None
