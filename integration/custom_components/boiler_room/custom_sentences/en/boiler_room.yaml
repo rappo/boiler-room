@@ -1,4 +1,15 @@
 language: "en"
+
+lists:
+  game_name:
+    wildcard: true
+  app_name:
+    wildcard: true
+  query:
+    wildcard: true
+  volume:
+    wildcard: true
+
 intents:
   BoilerRoomLaunchGame:
     data:
@@ -10,15 +21,13 @@ intents:
   BoilerRoomOpenApp:
     data:
       - sentences:
-          - "Open {app_name}"
           - "Open {app_name} on the (deck|steam machine|tv|living room|gaming pc)"
-          - "(Launch|Start) {app_name}"
+          - "(Launch|Start) the {app_name} app"
 
   BoilerRoomJellyfinSearch:
     data:
       - sentences:
           - "(Search|Find|Look for|Play) {query} on Jellyfin"
-          - "Put on {query}"
 
   BoilerRoomYouTubeSearch:
     data:
