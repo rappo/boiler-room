@@ -116,6 +116,7 @@ func parseLibraryFolders(path string) []string {
 
 // Scan reads all appmanifest_*.acf files and returns installed games.
 func (s *Scanner) Scan() ([]Game, error) {
+	seen := make(map[string]bool)
 	var games []Game
 
 	for _, libPath := range s.libraryPaths {
@@ -134,6 +135,11 @@ func (s *Scanner) Scan() ([]Game, error) {
 			if game.Name == "" || game.AppID == "" {
 				continue
 			}
+			// Deduplicate by AppID (symlinked library paths cause doubles)
+			if seen[game.AppID] {
+				continue
+			}
+			seen[game.AppID] = true
 			games = append(games, game)
 		}
 	}
