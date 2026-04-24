@@ -2,26 +2,10 @@
   "config": {
     "step": {
       "user": {
-        "title": "Set Up Boiler Room",
-        "description": "How would you like to connect to your SteamOS device?",
-        "data": {
-          "method": "Setup method"
-        }
-      },
-      "ssh_credentials": {
-        "title": "Install via SSH",
-        "description": "Enter the SSH connection details for your SteamOS device. The agent will be downloaded and installed automatically.",
+        "title": "Connect to Boiler Room Agent",
+        "description": "First, install the agent on your SteamOS device by running this command via SSH or Konsole:\n\ncurl -fsSL http://192.168.1.50:3210/rappo/boiler-room/raw/branch/main/install.sh | bash\n\nOnce the agent is running, enter the device IP below.",
         "data": {
           "host": "SteamOS device IP address",
-          "ssh_username": "Username",
-          "ssh_password": "Password (leave blank for SSH key auth)"
-        }
-      },
-      "manual": {
-        "title": "Connect to Existing Agent",
-        "description": "Enter the IP address and port of your SteamOS device running the Boiler Room agent.",
-        "data": {
-          "host": "Host",
           "port": "Port"
         }
       },
@@ -33,12 +17,10 @@
     "abort": {
       "already_configured": "This device is already configured.",
       "cannot_connect": "Cannot connect to the Boiler Room agent. Is it running?",
-      "missing_unique_id": "The agent did not provide a device ID.",
-      "ssh_install_failed": "SSH installation failed: {error_detail}",
-      "agent_not_responding": "Agent not responding: {error_detail}"
+      "missing_unique_id": "The agent did not provide a device ID."
     },
     "error": {
-      "cannot_connect": "Cannot connect to the Boiler Room agent at the specified address."
+      "cannot_connect": "Cannot connect to the agent at the specified address. Make sure you ran the install script on the SteamOS device first."
     }
   }
 }
