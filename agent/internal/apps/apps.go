@@ -2,6 +2,7 @@ package apps
 
 import (
 	"encoding/json"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -59,12 +60,56 @@ func ScanFlatpaks() ([]App, error) {
 }
 
 // LaunchFlatpak starts a Flatpak application by its application ID.
+// GUI apps need display environment variables that the systemd service
+// doesn't have. We discover them from the running desktop session.
 func LaunchFlatpak(appID string) error {
 	cmd := exec.Command("flatpak", "run", appID)
+	cmd.Env = append(cmd.Environ(), getDisplayEnv()...)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	go func() { _ = cmd.Wait() }()
+	return nil
+}
+
+// getDisplayEnv discovers display-related environment variables from the
+// running desktop session (gamescope, KDE, etc.) by reading /proc.
+// Returns env vars like DISPLAY=:0, WAYLAND_DISPLAY=wayland-1, etc.
+func getDisplayEnv() []string {
+	// Try to find a session process (gamescope, kwin, or steam)
+	targets := []string{"gamescope", "kwin_wayland", "steam"}
+	for _, target := range targets {
+		out, err := exec.Command("pgrep", "-xo", target).Output()
+		if err != nil {
+			continue
+		}
+		pid := strings.TrimSpace(string(out))
+		if pid == "" {
+			continue
+		}
+
+		envData, err := os.ReadFile("/proc/" + pid + "/environ")
+		if err != nil {
+			continue
+		}
+
+		var displayEnv []string
+		for _, entry := range strings.Split(string(envData), "\x00") {
+			for _, prefix := range []string{
+				"DISPLAY=",
+				"WAYLAND_DISPLAY=",
+				"XDG_RUNTIME_DIR=",
+				"DBUS_SESSION_BUS_ADDRESS=",
+			} {
+				if strings.HasPrefix(entry, prefix) {
+					displayEnv = append(displayEnv, entry)
+				}
+			}
+		}
+		if len(displayEnv) > 0 {
+			return displayEnv
+		}
+	}
 	return nil
 }
 
@@ -79,6 +124,7 @@ func LaunchURL(url string, browser string) error {
 		cmd = exec.Command("xdg-open", url)
 	}
 
+	cmd.Env = append(cmd.Environ(), getDisplayEnv()...)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
