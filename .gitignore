@@ -27,8 +27,9 @@ token.txt
 *.dll
 *.so
 *.dylib
-boiler-room-agent
-agent/boiler-room-agent
+# Built binary (not the source directory)
+/boiler-room-agent
+/agent/boiler-room-agent
 
 # Test artifacts
 *.test

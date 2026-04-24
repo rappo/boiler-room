@@ -75,11 +75,13 @@ class BoilerRoomCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             games = await self.api.get_games()
             apps = await self.api.get_apps()
             sensors = await self.api.get_sensors()
+            shortcuts = await self.api.get_shortcuts()
             return {
                 "status": status,
                 "games": games,
                 "apps": apps,
                 "sensors": sensors,
+                "shortcuts": shortcuts,
             }
         except Exception as err:
             raise UpdateFailed(f"Error communicating with agent: {err}") from err

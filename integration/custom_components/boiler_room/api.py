@@ -16,6 +16,8 @@ class BoilerRoomAPI:
 
     def __init__(self, host: str, port: int) -> None:
         """Initialize the API client."""
+        self.host = host
+        self.port = port
         self.base_url = f"http://{host}:{port}/api/v1"
         self._session: aiohttp.ClientSession | None = None
 
@@ -78,13 +80,21 @@ class BoilerRoomAPI:
         except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
             return False
 
-    # ─── Phase 2: Apps ───
+    # ─── Phase 2: Apps & Shortcuts ───
 
     async def get_apps(self, refresh: bool = False) -> list[dict[str, Any]]:
         """Get the list of installed Flatpak apps."""
         session = await self._get_session()
         params = {"refresh": "true"} if refresh else {}
         async with session.get(f"{self.base_url}/apps", params=params) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+    async def get_shortcuts(self, refresh: bool = False) -> list[dict[str, Any]]:
+        """Get the list of Non-Steam game shortcuts."""
+        session = await self._get_session()
+        params = {"refresh": "true"} if refresh else {}
+        async with session.get(f"{self.base_url}/shortcuts", params=params) as resp:
             resp.raise_for_status()
             return await resp.json()
 
@@ -114,3 +124,30 @@ class BoilerRoomAPI:
         ) as resp:
             resp.raise_for_status()
             return await resp.json()
+
+    # ─── Phase 2: Plugins ───
+
+    async def get_plugins(self) -> list[dict[str, Any]]:
+        """Get the list of registered plugins."""
+        session = await self._get_session()
+        async with session.get(f"{self.base_url}/plugins") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+    async def plugin_action(
+        self, plugin_name: str, action: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Execute a plugin action."""
+        session = await self._get_session()
+        payload = {"action": action, "params": params or {}}
+        async with session.post(
+            f"{self.base_url}/plugins/{plugin_name}/action", json=payload
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+    # ─── Phase 2: Artwork ───
+
+    def get_artwork_url(self, appid: str, art_type: str = "grid") -> str:
+        """Return the URL for a game's artwork image."""
+        return f"{self.base_url}/games/{appid}/artwork/{art_type}"

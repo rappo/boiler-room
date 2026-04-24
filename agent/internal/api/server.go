@@ -5,31 +5,36 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/rappo/boiler-room/agent/internal/apps"
 	"github.com/rappo/boiler-room/agent/internal/games"
+	"github.com/rappo/boiler-room/agent/internal/plugins"
 	"github.com/rappo/boiler-room/agent/internal/system"
 )
 
 // Server is the HTTP API server for the Boiler Room agent.
 type Server struct {
-	scanner    *games.Scanner
-	sysInfo    *system.Info
-	flatpaks   []apps.App
-	port       int
-	deviceName string
-	version    string
+	scanner       *games.Scanner
+	sysInfo       *system.Info
+	flatpaks      []apps.App
+	shortcuts     []games.Shortcut
+	pluginManager *plugins.Manager
+	port          int
+	deviceName    string
+	version       string
 }
 
 // NewServer creates a new API server.
-func NewServer(scanner *games.Scanner, sysInfo *system.Info, port int, deviceName, version string) *Server {
+func NewServer(scanner *games.Scanner, sysInfo *system.Info, pluginMgr *plugins.Manager, port int, deviceName, version string) *Server {
 	s := &Server{
-		scanner:    scanner,
-		sysInfo:    sysInfo,
-		port:       port,
-		deviceName: deviceName,
-		version:    version,
+		scanner:       scanner,
+		sysInfo:       sysInfo,
+		pluginManager: pluginMgr,
+		port:          port,
+		deviceName:    deviceName,
+		version:       version,
 	}
 
 	// Initial Flatpak scan
@@ -39,6 +44,15 @@ func NewServer(scanner *games.Scanner, sysInfo *system.Info, port int, deviceNam
 	} else {
 		s.flatpaks = flatpakList
 		log.Printf("Found %d Flatpak apps", len(flatpakList))
+	}
+
+	// Initial Non-Steam shortcuts scan
+	shortcutList, err := games.ScanShortcuts()
+	if err != nil {
+		log.Printf("Warning: Non-Steam shortcut scan failed: %v", err)
+	} else {
+		s.shortcuts = shortcutList
+		log.Printf("Found %d Non-Steam shortcuts", len(shortcutList))
 	}
 
 	return s
@@ -53,13 +67,21 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/v1/games", s.handleGames)
 	mux.HandleFunc("POST /api/v1/launch", s.handleLaunch)
 
-	// Phase 2: Apps
+	// Phase 2: Apps & Shortcuts
 	mux.HandleFunc("GET /api/v1/apps", s.handleApps)
+	mux.HandleFunc("GET /api/v1/shortcuts", s.handleShortcuts)
+
+	// Phase 2: Artwork
+	mux.HandleFunc("GET /api/v1/games/{appid}/artwork/{type}", s.handleArtwork)
 
 	// Phase 2: System controls
 	mux.HandleFunc("GET /api/v1/system/sensors", s.handleSensors)
 	mux.HandleFunc("POST /api/v1/system/volume", s.handleVolume)
 	mux.HandleFunc("POST /api/v1/system/power", s.handlePower)
+
+	// Phase 2: Plugins
+	mux.HandleFunc("GET /api/v1/plugins", s.handlePluginList)
+	mux.HandleFunc("POST /api/v1/plugins/{name}/action", s.handlePluginAction)
 
 	// Health check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +118,8 @@ type statusResponse struct {
 	MACAddress    string `json:"mac_address,omitempty"`
 	GameCount     int    `json:"game_count"`
 	AppCount      int    `json:"app_count"`
+	ShortcutCount int    `json:"shortcut_count"`
+	PluginCount   int    `json:"plugin_count"`
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -110,6 +134,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		MACAddress:    s.sysInfo.MacAddress,
 		GameCount:     len(s.scanner.GetCached()),
 		AppCount:      len(s.flatpaks),
+		ShortcutCount: len(s.shortcuts),
+		PluginCount:   len(s.pluginManager.List()),
 	}
 
 	s.writeJSON(w, http.StatusOK, resp)
@@ -151,6 +177,57 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, http.StatusOK, appList)
+}
+
+// --- Non-Steam Shortcuts ---
+
+func (s *Server) handleShortcuts(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("refresh") == "true" {
+		shortcutList, err := games.ScanShortcuts()
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, "Failed to scan shortcuts: "+err.Error())
+			return
+		}
+		s.shortcuts = shortcutList
+	}
+
+	list := s.shortcuts
+	if list == nil {
+		list = []games.Shortcut{}
+	}
+
+	s.writeJSON(w, http.StatusOK, list)
+}
+
+// --- Artwork ---
+
+func (s *Server) handleArtwork(w http.ResponseWriter, r *http.Request) {
+	appID := r.PathValue("appid")
+	artType := r.PathValue("type")
+
+	if appID == "" || artType == "" {
+		s.writeError(w, http.StatusBadRequest, "Must provide appid and artwork type")
+		return
+	}
+
+	path, err := games.GetArtworkPath(appID, games.ArtworkType(artType))
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, "Artwork not found: "+err.Error())
+		return
+	}
+
+	contentType := games.DetectContentType(path)
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=86400") // Cache 24 hours
+
+	file, err := os.Open(path)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "Failed to read artwork")
+		return
+	}
+	defer file.Close()
+
+	http.ServeFile(w, r, path)
 }
 
 // --- Launch ---
@@ -300,7 +377,7 @@ func (s *Server) handleSensors(w http.ResponseWriter, r *http.Request) {
 // --- Volume ---
 
 type volumeRequest struct {
-	Level *int `json:"level"` // 0-100, nil = get current
+	Level *int  `json:"level"` // 0-100, nil = get current
 	Mute  *bool `json:"mute"`
 }
 
@@ -359,6 +436,50 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 			system.Reboot()
 		}
 	}()
+}
+
+// --- Plugins ---
+
+func (s *Server) handlePluginList(w http.ResponseWriter, r *http.Request) {
+	list := s.pluginManager.List()
+	if list == nil {
+		list = []plugins.PluginInfo{}
+	}
+	s.writeJSON(w, http.StatusOK, list)
+}
+
+type pluginActionRequest struct {
+	Action string                 `json:"action"`
+	Params map[string]interface{} `json:"params"`
+}
+
+func (s *Server) handlePluginAction(w http.ResponseWriter, r *http.Request) {
+	pluginName := r.PathValue("name")
+
+	var req pluginActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.Action == "" {
+		s.writeError(w, http.StatusBadRequest, "Must provide 'action'")
+		return
+	}
+
+	result, err := s.pluginManager.HandleAction(pluginName, req.Action, req.Params)
+	if err != nil {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status": "ok",
+		"result": result,
+	})
 }
 
 // --- Middleware ---

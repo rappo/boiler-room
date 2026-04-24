@@ -95,6 +95,13 @@ class BoilerRoomMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         return []
 
     @property
+    def _shortcuts(self) -> list[dict[str, Any]]:
+        """Get Non-Steam shortcuts from coordinator data."""
+        if self.coordinator.data:
+            return self.coordinator.data.get("shortcuts", [])
+        return []
+
+    @property
     def _sensors(self) -> dict[str, Any]:
         """Get sensor data."""
         if self.coordinator.data:
@@ -140,6 +147,8 @@ class BoilerRoomMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             attrs["gaming_mode"] = self._status.get("gaming_mode", False)
             attrs["game_count"] = self._status.get("game_count", 0)
             attrs["app_count"] = self._status.get("app_count", 0)
+            attrs["shortcut_count"] = self._status.get("shortcut_count", 0)
+            attrs["plugin_count"] = self._status.get("plugin_count", 0)
             attrs["mac_address"] = self._status.get("mac_address", "")
             attrs["ip_address"] = self._status.get("ip_address", "")
             attrs["uptime_seconds"] = self._status.get("uptime_seconds", 0)
@@ -176,14 +185,17 @@ class BoilerRoomMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         if media_content_id == "games":
             children = []
             for game in self._games:
+                appid = game["appid"]
+                thumbnail = self._api.get_artwork_url(appid, "grid")
                 children.append(
                     BrowseMedia(
                         title=game["name"],
                         media_class="game",
                         media_content_type="game",
-                        media_content_id=game["appid"],
+                        media_content_id=appid,
                         can_play=True,
                         can_expand=False,
+                        thumbnail=thumbnail,
                     )
                 )
             return BrowseMedia(
@@ -191,6 +203,31 @@ class BoilerRoomMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 media_class="directory",
                 media_content_type="library",
                 media_content_id="games",
+                can_play=False,
+                can_expand=True,
+                children=children,
+                children_media_class="game",
+            )
+
+        # Sub-folder: Non-Steam Shortcuts
+        if media_content_id == "shortcuts":
+            children = []
+            for shortcut in self._shortcuts:
+                children.append(
+                    BrowseMedia(
+                        title=shortcut["name"],
+                        media_class="game",
+                        media_content_type="game",
+                        media_content_id=shortcut.get("appid", ""),
+                        can_play=True,
+                        can_expand=False,
+                    )
+                )
+            return BrowseMedia(
+                title="Non-Steam Games",
+                media_class="directory",
+                media_content_type="library",
+                media_content_id="shortcuts",
                 can_play=False,
                 can_expand=True,
                 children=children,
@@ -234,6 +271,19 @@ class BoilerRoomMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 children_media_class="game",
             ),
         ]
+
+        if self._shortcuts:
+            children.append(
+                BrowseMedia(
+                    title=f"Non-Steam Games ({len(self._shortcuts)})",
+                    media_class="directory",
+                    media_content_type="library",
+                    media_content_id="shortcuts",
+                    can_play=False,
+                    can_expand=True,
+                    children_media_class="game",
+                )
+            )
 
         if self._apps:
             children.append(

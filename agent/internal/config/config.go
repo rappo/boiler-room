@@ -13,6 +13,11 @@ type Config struct {
 	DeviceName string `yaml:"device_name"`
 	APIPort    int    `yaml:"api_port"`
 	LogLevel   string `yaml:"log_level"`
+
+	// Plugin settings (optional — plugins work without config)
+	JellyfinURL    string `yaml:"jellyfin_url"`
+	JellyfinAPIKey string `yaml:"jellyfin_api_key"`
+	PreferredBrowser string `yaml:"preferred_browser"` // For YouTube plugin: "firefox", "chrome", or Flatpak ID
 }
 
 // DefaultConfig returns a config with sensible defaults
