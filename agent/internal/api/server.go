@@ -311,14 +311,14 @@ func (s *Server) handleLaunchGame(w http.ResponseWriter, req launchRequest) {
 }
 
 func (s *Server) handleLaunchApp(w http.ResponseWriter, req launchRequest) {
-	var appID string
+	var flatpakID string
 
 	if req.AppID != "" {
-		appID = req.AppID
+		flatpakID = req.AppID
 	} else if req.Target != "" {
 		// Check well-known apps first
 		if id, ok := apps.WellKnownApps[req.Target]; ok {
-			appID = id
+			flatpakID = id
 		} else {
 			// Fuzzy match against installed Flatpaks
 			found := apps.FindFlatpakByName(s.flatpaks, req.Target)
@@ -328,24 +328,43 @@ func (s *Server) handleLaunchApp(w http.ResponseWriter, req launchRequest) {
 				})
 				return
 			}
-			appID = found.ID
+			flatpakID = found.ID
 		}
 	} else {
 		s.writeError(w, http.StatusBadRequest, "Must provide 'target' (name) or 'appid'")
 		return
 	}
 
-	if err := apps.LaunchFlatpak(appID); err != nil {
+	// In gaming mode, try launching via Steam shortcut first.
+	// Steam manages the display context (gamescope), so this avoids
+	// the impossible env injection problem with flatpak run.
+	if system.IsGamingMode() {
+		for _, shortcut := range s.shortcuts {
+			if shortcut.FlatpakID == flatpakID {
+				log.Printf("Gaming mode: launching app %s via Steam shortcut (appid %s)", flatpakID, shortcut.AppID)
+				if err := games.Launch(shortcut.AppID); err == nil {
+					s.writeJSON(w, http.StatusOK, launchResponse{
+						Status: "launching",
+						App:    &apps.App{ID: flatpakID, Name: shortcut.Name, Type: "flatpak"},
+					})
+					return
+				}
+			}
+		}
+	}
+
+	// Direct Flatpak launch (works in desktop mode)
+	if err := apps.LaunchFlatpak(flatpakID); err != nil {
 		s.writeJSON(w, http.StatusInternalServerError, launchResponse{
 			Status: "error", Message: "Failed to launch app: " + err.Error(),
 		})
 		return
 	}
 
-	log.Printf("Launched app: %s", appID)
+	log.Printf("Launched app: %s", flatpakID)
 	s.writeJSON(w, http.StatusOK, launchResponse{
 		Status: "launching",
-		App:    &apps.App{ID: appID, Name: req.Target, Type: "flatpak"},
+		App:    &apps.App{ID: flatpakID, Name: req.Target, Type: "flatpak"},
 	})
 }
 

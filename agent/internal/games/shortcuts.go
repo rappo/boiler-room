@@ -10,12 +10,13 @@ import (
 
 // Shortcut represents a Non-Steam game shortcut from shortcuts.vdf.
 type Shortcut struct {
-	AppID    string `json:"appid"`
-	Name     string `json:"name"`
-	Exe      string `json:"exe,omitempty"`
-	StartDir string `json:"start_dir,omitempty"`
-	Icon     string `json:"icon,omitempty"`
-	Tags     string `json:"tags,omitempty"`
+	AppID     string `json:"appid"`
+	Name      string `json:"name"`
+	Exe       string `json:"exe,omitempty"`
+	StartDir  string `json:"start_dir,omitempty"`
+	Icon      string `json:"icon,omitempty"`
+	Tags      string `json:"tags,omitempty"`
+	FlatpakID string `json:"flatpak_id,omitempty"` // Extracted from Exe if it's a Flatpak shortcut
 }
 
 // ScanShortcuts reads Non-Steam game shortcuts from shortcuts.vdf.
@@ -107,6 +108,10 @@ func parseBinaryVDF(path string) ([]Shortcut, error) {
 				// Generate from name hash for consistency
 				shortcut.AppID = fmt.Sprintf("shortcut_%s", sanitizeForID(shortcut.Name))
 			}
+			// Extract Flatpak ID from exe if present
+			// Exe is typically: /usr/bin/flatpak run com.github.iwalton3.jellyfin-media-player
+			// or: flatpak run --command=... com.app.ID
+			shortcut.FlatpakID = extractFlatpakID(shortcut.Exe)
 			shortcuts = append(shortcuts, shortcut)
 		}
 	}
@@ -209,6 +214,43 @@ func skipContainer(r *vdfReader) {
 			depth--
 		}
 	}
+}
+
+// extractFlatpakID extracts a Flatpak application ID from a shortcut exe string.
+// Steam shortcuts store the exe in various formats:
+//   "/usr/bin/flatpak run com.github.iwalton3.jellyfin-media-player"
+//   "run" "--branch=stable" "--arch=x86_64" "--command=..." "org.jellyfin.JellyfinDesktop"
+//   "/home/deck/game.sh" → "" (not a Flatpak)
+//
+// Strategy: find any token that looks like a reverse-DNS Flatpak ID (2+ dots).
+func extractFlatpakID(exe string) string {
+	// Strip outer quotes and whitespace
+	exe = strings.Trim(exe, "\"' ")
+
+	// Split on whitespace and quotes
+	parts := strings.FieldsFunc(exe, func(r rune) bool {
+		return r == ' ' || r == '"' || r == '\''
+	})
+
+	for _, part := range parts {
+		part = strings.Trim(part, "\"' ")
+		if part == "" {
+			continue
+		}
+		// Skip flags
+		if strings.HasPrefix(part, "-") {
+			continue
+		}
+		// Skip common non-ID tokens
+		if part == "run" || part == "flatpak" || part == "/usr/bin/flatpak" {
+			continue
+		}
+		// Flatpak IDs are reverse-DNS: org.app.Name, com.github.user.app, etc.
+		if strings.Count(part, ".") >= 2 {
+			return part
+		}
+	}
+	return ""
 }
 
 // sanitizeForID creates a safe ID from a name.
