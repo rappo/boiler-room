@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
-	"syscall"
 )
 
 // App represents an installed non-Steam application (Flatpak, etc.)
@@ -85,9 +84,8 @@ func LaunchFlatpak(appID string) error {
 // getDisplayEnv discovers display-related environment variables from the
 // running desktop session by reading /proc.
 //
-// Strategy: scan all user-owned processes for WAYLAND_DISPLAY. If found,
-// use that process's env. If no Wayland session is found, fall back to
-// known process names (gamescope, steam) for X11 DISPLAY.
+// Scans all readable /proc/PID/environ files for WAYLAND_DISPLAY.
+// Skips sandbox processes (pressure-vessel) which have wrong paths.
 func getDisplayEnv() []string {
 	wantedPrefixes := []string{
 		"DISPLAY=",
@@ -97,10 +95,8 @@ func getDisplayEnv() []string {
 		"XAUTHORITY=",
 	}
 
-	uid := os.Getuid()
 	var bestEnv []string
 
-	// Scan /proc for any process with WAYLAND_DISPLAY
 	procEntries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil
@@ -110,30 +106,26 @@ func getDisplayEnv() []string {
 		if !entry.IsDir() {
 			continue
 		}
-		// Only look at numeric PIDs
 		pid := entry.Name()
-		if pid[0] < '0' || pid[0] > '9' {
-			continue
-		}
-
-		// Check if it's our process (same UID)
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || stat.Uid != uint32(uid) {
+		if len(pid) == 0 || pid[0] < '0' || pid[0] > '9' {
 			continue
 		}
 
 		envData, err := os.ReadFile("/proc/" + pid + "/environ")
 		if err != nil {
-			continue
+			continue // can't read = not our process or kernel thread
 		}
 
 		var displayEnv []string
 		hasWayland := false
+		isSandbox := false
 		for _, e := range strings.Split(string(envData), "\x00") {
+			// Skip pressure-vessel/sandbox processes — their paths
+			// are inside the container and don't work from outside
+			if strings.Contains(e, "pressure-vessel") {
+				isSandbox = true
+				break
+			}
 			for _, prefix := range wantedPrefixes {
 				if strings.HasPrefix(e, prefix) {
 					displayEnv = append(displayEnv, e)
@@ -144,12 +136,14 @@ func getDisplayEnv() []string {
 			}
 		}
 
-		// Found WAYLAND_DISPLAY — this is the best source, use it
+		if isSandbox {
+			continue
+		}
+
 		if hasWayland {
 			return displayEnv
 		}
 
-		// Track best fallback (most env vars found)
 		if len(displayEnv) > len(bestEnv) {
 			bestEnv = displayEnv
 		}
