@@ -102,6 +102,15 @@ async def install_via_ssh(
         connect_kwargs["client_keys"] = [key_filename]
     elif password:
         connect_kwargs["password"] = password
+        # In environments without SSH keys (e.g., HAOS containers),
+        # asyncssh will try public key auth first and fail.
+        # Explicitly disable key auth when using password.
+        connect_kwargs["client_keys"] = []
+        connect_kwargs["preferred_auth"] = "password"
+    else:
+        # No password and no key — will fail, but let it try
+        # so the error message is clear
+        pass
 
     try:
         _LOGGER.info("Connecting to %s@%s:%d via SSH...", username, host, port)

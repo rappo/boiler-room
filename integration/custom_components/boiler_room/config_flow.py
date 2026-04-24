@@ -100,6 +100,9 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+            description_placeholders={
+                "error_detail": "",
+            },
         )
 
     async def async_step_ssh_install(
