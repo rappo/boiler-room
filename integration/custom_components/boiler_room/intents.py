@@ -504,18 +504,24 @@ class BoilerRoomJellyfinBrowseIntent(intent.IntentHandler):
             item_type = item.get("Type", "")
             type_label = _TYPE_LABELS.get(item_type, item_type.lower())
 
-            # Check for existing session, launch app if needed
+            # Check for existing session
             session_id = await _jellyfin_find_session(jf_url, jf_key)
 
-            if not session_id:
-                api, _, _, _ = _get_device_context(hass)
-                if api:
-                    try:
-                        await api.launch(appid="org.jellyfin.JellyfinDesktop", launch_type="app")
-                    except Exception:
-                        _LOGGER.warning("Could not launch Jellyfin app")
+            # Always launch/focus the app (brings it to foreground)
+            api, _, _, _ = _get_device_context(hass)
+            if api:
+                try:
+                    await api.launch(appid="org.jellyfin.JellyfinDesktop", launch_type="app")
+                except Exception:
+                    _LOGGER.warning("Could not launch Jellyfin app")
+
+                if not session_id:
+                    # First launch — wait for session to register
                     await asyncio.sleep(5)
                     session_id = await _jellyfin_find_session(jf_url, jf_key)
+                else:
+                    # Already running — brief pause for focus
+                    await asyncio.sleep(1)
 
             if session_id and item_id:
                 # Use Jellyfin's DisplayContent API to navigate within the app
