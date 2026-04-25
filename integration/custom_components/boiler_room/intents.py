@@ -107,173 +107,6 @@ def fuzzy_match_game(
     return None
 
 
-async def async_setup_intents(hass: HomeAssistant) -> None:
-    """Register intent handlers for Boiler Room voice commands."""
-    intent.async_register(hass, BoilerRoomLaunchGameIntent())
-    intent.async_register(hass, BoilerRoomOpenAppIntent())
-    intent.async_register(hass, BoilerRoomSystemControlIntent())
-    intent.async_register(hass, BoilerRoomJellyfinSearchIntent())
-    _LOGGER.info("Boiler Room voice command intents registered")
-
-
-class BoilerRoomLaunchGameIntent(intent.IntentHandler):
-    """Handle the BoilerRoomLaunchGame intent.
-
-    Searches games first, then falls back to apps (Flatpaks).
-    This way 'launch Jellyfin' and 'launch Balatro' both work.
-    """
-
-    intent_type = "BoilerRoomLaunchGame"
-
-    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
-        """Handle the intent."""
-        hass = intent_obj.hass
-        game_name = intent_obj.slots.get("game_name", {}).get("value", "")
-
-        if not game_name:
-            response = intent_obj.create_response()
-            response.async_set_speech("I didn't catch the game name. What would you like to play?")
-            return response
-
-        # Find the first available Boiler Room device
-        api, games, apps, aliases = _get_device_context(hass)
-        if not api:
-            response = intent_obj.create_response()
-            response.async_set_speech("No SteamOS device is connected.")
-            return response
-
-        # 1. Try matching against Steam games
-        game = fuzzy_match_game(game_name, games, aliases)
-        if game:
-            result = await api.launch(appid=game["appid"])
-            response = intent_obj.create_response()
-            if result.get("status") == "launching":
-                response.async_set_speech(f"Launching {game['name']}.")
-            else:
-                response.async_set_speech(
-                    f"Failed to launch {game['name']}: {result.get('message', 'unknown error')}"
-                )
-            return response
-
-        # 2. Try matching against Flatpak apps
-        app = _fuzzy_match_app(game_name, apps)
-        if app:
-            result = await api.launch(appid=app["id"], launch_type="app")
-            response = intent_obj.create_response()
-            if result.get("status") == "launching":
-                response.async_set_speech(f"Opening {app['name']}.")
-            else:
-                response.async_set_speech(
-                    f"Failed to open {app['name']}: {result.get('message', 'unknown error')}"
-                )
-            return response
-
-        # Nothing found
-        response = intent_obj.create_response()
-        response.async_set_speech(
-            f"I couldn't find a game or app matching '{game_name}'. "
-            f"You have {len(games)} games and {len(apps)} apps installed."
-        )
-        return response
-
-
-class BoilerRoomOpenAppIntent(intent.IntentHandler):
-    """Handle the BoilerRoomOpenApp intent.
-
-    Searches apps first, then falls back to games.
-    """
-
-    intent_type = "BoilerRoomOpenApp"
-
-    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
-        """Handle the intent."""
-        hass = intent_obj.hass
-        app_name = intent_obj.slots.get("app_name", {}).get("value", "")
-
-        if not app_name:
-            response = intent_obj.create_response()
-            response.async_set_speech("Which app would you like to open?")
-            return response
-
-        api, games, apps, _ = _get_device_context(hass)
-        if not api:
-            response = intent_obj.create_response()
-            response.async_set_speech("No SteamOS device is connected.")
-            return response
-
-        # 1. Try matching against Flatpak apps first
-        app = _fuzzy_match_app(app_name, apps)
-        if app:
-            result = await api.launch(appid=app["id"], launch_type="app")
-            response = intent_obj.create_response()
-            if result.get("status") == "launching":
-                response.async_set_speech(f"Opening {app['name']}.")
-            else:
-                response.async_set_speech(
-                    f"Failed to open {app['name']}: {result.get('message', 'unknown error')}"
-                )
-            return response
-
-        # 2. Fall back to games
-        game = fuzzy_match_game(app_name, games)
-        if game:
-            result = await api.launch(appid=game["appid"])
-            response = intent_obj.create_response()
-            if result.get("status") == "launching":
-                response.async_set_speech(f"Launching {game['name']}.")
-            else:
-                response.async_set_speech(
-                    f"Failed to launch {game['name']}: {result.get('message', 'unknown error')}"
-                )
-            return response
-
-        # Nothing found
-        response = intent_obj.create_response()
-        response.async_set_speech(f"Couldn't find an app or game named {app_name}.")
-        return response
-
-
-class BoilerRoomSystemControlIntent(intent.IntentHandler):
-    """Handle the BoilerRoomSystemControl intent."""
-
-    intent_type = "BoilerRoomSystemControl"
-
-    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
-        """Handle the intent."""
-        hass = intent_obj.hass
-        action = intent_obj.slots.get("action", {}).get("value", "").lower()
-        volume = intent_obj.slots.get("volume", {}).get("value")
-
-        api, _, _, _ = _get_device_context(hass)
-        if not api:
-            response = intent_obj.create_response()
-            response.async_set_speech("No SteamOS device is connected.")
-            return response
-
-        response = intent_obj.create_response()
-
-        if volume is not None:
-            try:
-                vol = int(volume)
-                await api.set_volume(vol)
-                response.async_set_speech(f"Volume set to {vol} percent.")
-            except (ValueError, TypeError):
-                response.async_set_speech("I didn't understand the volume level.")
-        elif action in ("suspend", "sleep", "off", "turn off"):
-            await api.power_action("suspend")
-            response.async_set_speech("Suspending the SteamOS device.")
-        elif action in ("shutdown", "shut down", "power off"):
-            await api.power_action("shutdown")
-            response.async_set_speech("Shutting down the SteamOS device.")
-        elif action in ("reboot", "restart"):
-            await api.power_action("reboot")
-            response.async_set_speech("Rebooting the SteamOS device.")
-        else:
-            response.async_set_speech(f"I don't know the command '{action}'.")
-
-        return response
-
-
 def _fuzzy_match_app(
     query: str,
     apps: list[dict[str, Any]],
@@ -309,7 +142,6 @@ def _get_device_context(
         if api and coordinator and coordinator.data:
             games = coordinator.data.get("games", [])
             apps = coordinator.data.get("apps", [])
-            # Get user-configured aliases from options
             aliases = entry_data.get("aliases")
             return api, games, apps, aliases
     return None, [], [], None
@@ -319,7 +151,6 @@ def _get_jellyfin_config(
     hass: HomeAssistant,
 ) -> tuple[str, str] | None:
     """Get Jellyfin URL and API key from the first config entry's options."""
-    from homeassistant.config_entries import ConfigEntry
     for entry in hass.config_entries.async_entries(DOMAIN):
         jf_url = entry.options.get("jellyfin_url", "").strip()
         jf_key = entry.options.get("jellyfin_api_key", "").strip()
@@ -328,26 +159,229 @@ def _get_jellyfin_config(
     return None
 
 
-class BoilerRoomJellyfinSearchIntent(intent.IntentHandler):
-    """Handle the BoilerRoomJellyfinSearch intent.
+# ─── Intent Registration ───
 
-    Searches Jellyfin, launches the Jellyfin app on SteamOS,
-    then sends a play command to the active session.
-    """
+
+async def async_setup_intents(hass: HomeAssistant) -> None:
+    """Register intent handlers for Boiler Room voice commands."""
+    intent.async_register(hass, BoilerRoomLaunchGameIntent())
+    intent.async_register(hass, BoilerRoomOpenAppIntent())
+    intent.async_register(hass, BoilerRoomSystemControlIntent())
+    intent.async_register(hass, BoilerRoomJellyfinSearchIntent())
+    intent.async_register(hass, BoilerRoomJellyfinBrowseIntent())
+    _LOGGER.info("Boiler Room voice command intents registered")
+
+
+# ─── Game / App Intents ───
+
+
+class BoilerRoomLaunchGameIntent(intent.IntentHandler):
+    """Handle the BoilerRoomLaunchGame intent."""
+
+    intent_type = "BoilerRoomLaunchGame"
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        hass = intent_obj.hass
+        game_name = intent_obj.slots.get("game_name", {}).get("value", "")
+
+        if not game_name:
+            response = intent_obj.create_response()
+            response.async_set_speech("I didn't catch the game name. What would you like to play?")
+            return response
+
+        api, games, apps, aliases = _get_device_context(hass)
+        if not api:
+            response = intent_obj.create_response()
+            response.async_set_speech("No SteamOS device is connected.")
+            return response
+
+        game = fuzzy_match_game(game_name, games, aliases)
+        if game:
+            result = await api.launch(appid=game["appid"])
+            response = intent_obj.create_response()
+            if result.get("status") == "launching":
+                response.async_set_speech(f"Launching {game['name']}.")
+            else:
+                response.async_set_speech(f"Failed to launch {game['name']}.")
+            return response
+
+        app = _fuzzy_match_app(game_name, apps)
+        if app:
+            result = await api.launch(appid=app["id"], launch_type="app")
+            response = intent_obj.create_response()
+            if result.get("status") == "launching":
+                response.async_set_speech(f"Opening {app['name']}.")
+            else:
+                response.async_set_speech(f"Failed to open {app['name']}.")
+            return response
+
+        response = intent_obj.create_response()
+        response.async_set_speech(f"I couldn't find a game or app matching '{game_name}'.")
+        return response
+
+
+class BoilerRoomOpenAppIntent(intent.IntentHandler):
+    """Handle the BoilerRoomOpenApp intent."""
+
+    intent_type = "BoilerRoomOpenApp"
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        hass = intent_obj.hass
+        app_name = intent_obj.slots.get("app_name", {}).get("value", "")
+
+        if not app_name:
+            response = intent_obj.create_response()
+            response.async_set_speech("Which app should I open?")
+            return response
+
+        api, games, apps, aliases = _get_device_context(hass)
+        if not api:
+            response = intent_obj.create_response()
+            response.async_set_speech("No SteamOS device is connected.")
+            return response
+
+        app = _fuzzy_match_app(app_name, apps)
+        if app:
+            result = await api.launch(appid=app["id"], launch_type="app")
+            response = intent_obj.create_response()
+            if result.get("status") == "launching":
+                response.async_set_speech(f"Opening {app['name']}.")
+            else:
+                response.async_set_speech(f"Failed to open {app['name']}.")
+            return response
+
+        game = fuzzy_match_game(app_name, games)
+        if game:
+            result = await api.launch(appid=game["appid"])
+            response = intent_obj.create_response()
+            if result.get("status") == "launching":
+                response.async_set_speech(f"Launching {game['name']}.")
+            else:
+                response.async_set_speech(f"Failed to launch {game['name']}.")
+            return response
+
+        response = intent_obj.create_response()
+        response.async_set_speech(f"Couldn't find an app or game named {app_name}.")
+        return response
+
+
+# ─── System Control ───
+
+
+class BoilerRoomSystemControlIntent(intent.IntentHandler):
+    """Handle the BoilerRoomSystemControl intent."""
+
+    intent_type = "BoilerRoomSystemControl"
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        hass = intent_obj.hass
+        action = intent_obj.slots.get("action", {}).get("value", "").lower()
+        volume = intent_obj.slots.get("volume", {}).get("value")
+
+        api, _, _, _ = _get_device_context(hass)
+        if not api:
+            response = intent_obj.create_response()
+            response.async_set_speech("No SteamOS device is connected.")
+            return response
+
+        response = intent_obj.create_response()
+
+        if volume is not None:
+            try:
+                vol = int(volume)
+                await api.set_volume(vol)
+                response.async_set_speech(f"Volume set to {vol} percent.")
+            except (ValueError, TypeError):
+                response.async_set_speech("I didn't understand the volume level.")
+        elif action in ("suspend", "sleep"):
+            await api.power_action("suspend")
+            response.async_set_speech("Suspending the SteamOS device.")
+        elif action in ("shutdown",):
+            await api.power_action("shutdown")
+            response.async_set_speech("Shutting down the SteamOS device.")
+        elif action in ("reboot",):
+            await api.power_action("reboot")
+            response.async_set_speech("Rebooting the SteamOS device.")
+        else:
+            response.async_set_speech(f"I don't know the command '{action}'.")
+
+        return response
+
+
+# ─── Jellyfin Helpers ───
+
+_MEDIA_TYPE_DEFAULT = "Movie,Series,Audio,MusicAlbum,Episode"
+_TYPE_LABELS = {
+    "Movie": "movie", "Series": "show", "MusicAlbum": "album",
+    "Audio": "song", "Episode": "episode", "MusicArtist": "artist",
+}
+
+
+async def _jellyfin_search(
+    jf_url: str, jf_key: str, query: str,
+    media_type: str | None = None, limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Search the Jellyfin library."""
+    headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
+    include_types = media_type or _MEDIA_TYPE_DEFAULT
+    search_url = (
+        f"{jf_url}/Items?searchTerm={query}"
+        f"&Limit={limit}&Recursive=true"
+        f"&IncludeItemTypes={include_types}"
+    )
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            search_url, headers=headers,
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            if resp.status != 200:
+                return []
+            data = await resp.json()
+            return data.get("Items", [])
+
+
+async def _jellyfin_find_session(jf_url: str, jf_key: str) -> str | None:
+    """Find a controllable Jellyfin session."""
+    headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"{jf_url}/Sessions", headers=headers,
+            timeout=aiohttp.ClientTimeout(total=5),
+        ) as resp:
+            if resp.status != 200:
+                return None
+            sessions = await resp.json()
+
+    session_id = None
+    for s in sessions:
+        client = (s.get("Client") or "").lower()
+        caps = s.get("Capabilities", {})
+        if caps.get("SupportsMediaControl"):
+            if any(kw in client for kw in ["jellyfin", "media player", "mpv"]):
+                return s.get("Id")
+            if not session_id:
+                session_id = s.get("Id")
+    return session_id
+
+
+# ─── Jellyfin Play Intent ───
+
+
+class BoilerRoomJellyfinSearchIntent(intent.IntentHandler):
+    """Search Jellyfin with optional type filtering, launch app, play content."""
 
     intent_type = "BoilerRoomJellyfinSearch"
 
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
-        """Handle the intent."""
         hass = intent_obj.hass
         query = intent_obj.slots.get("query", {}).get("value", "")
+        media_type = intent_obj.slots.get("media_type", {}).get("value")
 
         if not query:
             response = intent_obj.create_response()
             response.async_set_speech("What would you like to watch?")
             return response
 
-        # Check Jellyfin config
         jf_config = _get_jellyfin_config(hass)
         if not jf_config:
             response = intent_obj.create_response()
@@ -358,80 +392,42 @@ class BoilerRoomJellyfinSearchIntent(intent.IntentHandler):
             return response
 
         jf_url, jf_key = jf_config
-        headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
 
         try:
-            async with aiohttp.ClientSession() as session:
-                # Search Jellyfin
-                search_url = (
-                    f"{jf_url}/Items?searchTerm={query}"
-                    f"&Limit=5&Recursive=true"
-                    f"&IncludeItemTypes=Movie,Series,Audio,MusicAlbum,Episode"
+            items = await _jellyfin_search(jf_url, jf_key, query, media_type)
+            if not items:
+                hint = f" {media_type.lower()}" if media_type else ""
+                response = intent_obj.create_response()
+                response.async_set_speech(
+                    f"I couldn't find a{hint} matching '{query}' on Jellyfin."
                 )
-                async with session.get(
-                    search_url, headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as resp:
-                    if resp.status != 200:
-                        response = intent_obj.create_response()
-                        response.async_set_speech("Jellyfin search failed.")
-                        return response
-                    data = await resp.json()
+                return response
 
-                items = data.get("Items", [])
-                if not items:
-                    response = intent_obj.create_response()
-                    response.async_set_speech(
-                        f"I couldn't find anything matching '{query}' on Jellyfin."
-                    )
-                    return response
+            item = items[0]
+            item_name = item.get("Name", query)
+            item_id = item.get("Id", "")
+            item_type = item.get("Type", "")
+            type_label = _TYPE_LABELS.get(item_type, item_type.lower())
 
-                item = items[0]
-                item_name = item.get("Name", query)
-                item_id = item.get("Id", "")
-                item_type = item.get("Type", "")
+            # Launch Jellyfin app on SteamOS
+            api, _, _, _ = _get_device_context(hass)
+            if api:
+                try:
+                    await api.launch(appid="org.jellyfin.JellyfinDesktop", launch_type="app")
+                except Exception:
+                    _LOGGER.warning("Could not launch Jellyfin app")
+                await asyncio.sleep(5)
 
-                # Launch Jellyfin app on the SteamOS device
-                api, _, apps_list, _ = _get_device_context(hass)
-                if api:
-                    # Try to launch Jellyfin app
-                    try:
-                        await api.launch(
-                            appid="org.jellyfin.JellyfinDesktop",
-                            launch_type="app",
-                        )
-                    except Exception:
-                        _LOGGER.warning("Could not launch Jellyfin app")
+            # Find session and play
+            session_id = await _jellyfin_find_session(jf_url, jf_key)
 
-                    # Wait for Jellyfin to start and register a session
-                    await asyncio.sleep(5)
-
-                # Find active Jellyfin session and send play command
-                sessions_url = f"{jf_url}/Sessions"
-                async with session.get(
-                    sessions_url, headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=5),
-                ) as resp:
-                    sessions = await resp.json() if resp.status == 200 else []
-
-                # Find a controllable session
-                session_id = None
-                for s in sessions:
-                    client = (s.get("Client") or "").lower()
-                    caps = s.get("Capabilities", {})
-                    if caps.get("SupportsMediaControl"):
-                        # Prefer Jellyfin desktop/media player clients
-                        if any(kw in client for kw in ["jellyfin", "media player", "mpv"]):
-                            session_id = s.get("Id")
-                            break
-                        if not session_id:
-                            session_id = s.get("Id")
-
-                if session_id and item_id:
-                    play_url = (
-                        f"{jf_url}/Sessions/{session_id}/Playing"
-                        f"?ItemIds={item_id}&PlayCommand=PlayNow"
-                    )
+            if session_id and item_id:
+                headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
+                play_url = (
+                    f"{jf_url}/Sessions/{session_id}/Playing"
+                    f"?ItemIds={item_id}&PlayCommand=PlayNow"
+                )
+                async with aiohttp.ClientSession() as session:
                     async with session.post(
                         play_url, headers=headers,
                         timeout=aiohttp.ClientTimeout(total=5),
@@ -439,17 +435,16 @@ class BoilerRoomJellyfinSearchIntent(intent.IntentHandler):
                         if resp.status < 400:
                             response = intent_obj.create_response()
                             response.async_set_speech(
-                                f"Playing {item_name} on Jellyfin."
+                                f"Playing the {type_label} {item_name} on Jellyfin."
                             )
                             return response
 
-                # Fallback: found content but couldn't start playback
-                response = intent_obj.create_response()
-                response.async_set_speech(
-                    f"Found {item_name} on Jellyfin, but no active player session. "
-                    f"Open Jellyfin on the SteamOS device first."
-                )
-                return response
+            response = intent_obj.create_response()
+            response.async_set_speech(
+                f"Found the {type_label} {item_name}, but no active Jellyfin session. "
+                f"Open Jellyfin on the SteamOS device first."
+            )
+            return response
 
         except asyncio.TimeoutError:
             response = intent_obj.create_response()
@@ -457,6 +452,79 @@ class BoilerRoomJellyfinSearchIntent(intent.IntentHandler):
             return response
         except Exception as err:
             _LOGGER.exception("Jellyfin search failed")
+            response = intent_obj.create_response()
+            response.async_set_speech(f"Jellyfin error: {err}")
+            return response
+
+
+# ─── Jellyfin Browse Intent ───
+
+
+class BoilerRoomJellyfinBrowseIntent(intent.IntentHandler):
+    """Search Jellyfin and open item page in the web UI (no playback)."""
+
+    intent_type = "BoilerRoomJellyfinBrowse"
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        hass = intent_obj.hass
+        query = intent_obj.slots.get("query", {}).get("value", "")
+        media_type = intent_obj.slots.get("media_type", {}).get("value")
+
+        if not query:
+            response = intent_obj.create_response()
+            response.async_set_speech("What would you like to find on Jellyfin?")
+            return response
+
+        jf_config = _get_jellyfin_config(hass)
+        if not jf_config:
+            response = intent_obj.create_response()
+            response.async_set_speech(
+                "Jellyfin is not configured. Go to Settings, Integrations, "
+                "Boiler Room, Configure to add your Jellyfin server."
+            )
+            return response
+
+        jf_url, jf_key = jf_config
+
+        try:
+            items = await _jellyfin_search(jf_url, jf_key, query, media_type)
+            if not items:
+                response = intent_obj.create_response()
+                response.async_set_speech(
+                    f"I couldn't find anything matching '{query}' on Jellyfin."
+                )
+                return response
+
+            item = items[0]
+            item_name = item.get("Name", query)
+            item_id = item.get("Id", "")
+            item_type = item.get("Type", "")
+            server_id = item.get("ServerId", "")
+            type_label = _TYPE_LABELS.get(item_type, item_type.lower())
+
+            # Build Jellyfin web UI URL
+            browse_url = f"{jf_url}/web/index.html#!/details?id={item_id}"
+            if server_id:
+                browse_url += f"&serverId={server_id}"
+
+            # Open in browser on SteamOS
+            api, _, _, _ = _get_device_context(hass)
+            if api:
+                try:
+                    await api.launch(url=browse_url, launch_type="url")
+                except Exception:
+                    _LOGGER.warning("Could not open URL on SteamOS device")
+
+            response = intent_obj.create_response()
+            response.async_set_speech(f"Opening {item_name} on Jellyfin.")
+            return response
+
+        except asyncio.TimeoutError:
+            response = intent_obj.create_response()
+            response.async_set_speech("Jellyfin server didn't respond in time.")
+            return response
+        except Exception as err:
+            _LOGGER.exception("Jellyfin browse failed")
             response = intent_obj.create_response()
             response.async_set_speech(f"Jellyfin error: {err}")
             return response
