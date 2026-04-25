@@ -26,43 +26,43 @@ intents:
 
   BoilerRoomJellyfinSearch:
     data:
-      # With type hint: "Play the movie Fargo on (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+      # With type hint: "Play the movie Fargo (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
       - sentences:
-          - "(Play|Watch|Put on) the movie {query} on (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+          - "(Play|Watch|Put on) the movie {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
         slots:
           media_type: "Movie"
       - sentences:
-          - "(Play|Watch|Put on) the (show|series|tv show) {query} on (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+          - "(Play|Watch|Put on) the (show|series|tv show) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
         slots:
           media_type: "Series"
       - sentences:
-          - "(Play|Listen to|Put on) the album {query} on (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+          - "(Play|Listen to|Put on) the album {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
         slots:
           media_type: "MusicAlbum"
       - sentences:
-          - "(Play|Listen to|Put on) the song {query} on (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+          - "(Play|Listen to|Put on) the song {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
         slots:
           media_type: "Audio"
-      # Without type hint: "Play Fargo on (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+      # Without type hint: "Play Fargo (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
       - sentences:
-          - "(Play|Watch|Listen to|Put on|Search|Find) {query} on (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+          - "(Play|Watch|Listen to|Put on|Search|Find) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
 
   BoilerRoomJellyfinBrowse:
     data:
       - sentences:
-          - "(Show|Browse|Find|Look up|Go to) the movie {query} on (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+          - "(Show|Browse|Find|Look up|Go to) the movie {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
         slots:
           media_type: "Movie"
       - sentences:
-          - "(Show|Browse|Find|Look up|Go to) the (show|series|tv show) {query} on (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+          - "(Show|Browse|Find|Look up|Go to) the (show|series|tv show) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
         slots:
           media_type: "Series"
       - sentences:
-          - "(Show|Browse|Find|Look up|Go to) the (album|artist|band) {query} on (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+          - "(Show|Browse|Find|Look up|Go to) the (album|artist|band) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
         slots:
           media_type: "MusicAlbum,MusicArtist"
       - sentences:
-          - "(Show me|Browse|Look up) {query} on (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+          - "(Show me|Browse|Look up) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
 
   BoilerRoomYouTubeSearch:
     data:
