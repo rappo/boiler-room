@@ -409,17 +409,20 @@ class BoilerRoomJellyfinSearchIntent(intent.IntentHandler):
             item_type = item.get("Type", "")
             type_label = _TYPE_LABELS.get(item_type, item_type.lower())
 
-            # Launch Jellyfin app on SteamOS
-            api, _, _, _ = _get_device_context(hass)
-            if api:
-                try:
-                    await api.launch(appid="org.jellyfin.JellyfinDesktop", launch_type="app")
-                except Exception:
-                    _LOGGER.warning("Could not launch Jellyfin app")
-                await asyncio.sleep(5)
-
-            # Find session and play
+            # Check if Jellyfin already has an active session
             session_id = await _jellyfin_find_session(jf_url, jf_key)
+
+            # Only launch the app if no session exists
+            if not session_id:
+                api, _, _, _ = _get_device_context(hass)
+                if api:
+                    try:
+                        await api.launch(appid="org.jellyfin.JellyfinDesktop", launch_type="app")
+                    except Exception:
+                        _LOGGER.warning("Could not launch Jellyfin app")
+                    await asyncio.sleep(5)
+                    # Re-check for session after launching
+                    session_id = await _jellyfin_find_session(jf_url, jf_key)
 
             if session_id and item_id:
                 headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
@@ -499,24 +502,45 @@ class BoilerRoomJellyfinBrowseIntent(intent.IntentHandler):
             item_name = item.get("Name", query)
             item_id = item.get("Id", "")
             item_type = item.get("Type", "")
-            server_id = item.get("ServerId", "")
             type_label = _TYPE_LABELS.get(item_type, item_type.lower())
 
-            # Build Jellyfin web UI URL
-            browse_url = f"{jf_url}/web/index.html#!/details?id={item_id}"
-            if server_id:
-                browse_url += f"&serverId={server_id}"
+            # Check for existing session, launch app if needed
+            session_id = await _jellyfin_find_session(jf_url, jf_key)
 
-            # Open in browser on SteamOS
-            api, _, _, _ = _get_device_context(hass)
-            if api:
-                try:
-                    await api.launch(url=browse_url, launch_type="url")
-                except Exception:
-                    _LOGGER.warning("Could not open URL on SteamOS device")
+            if not session_id:
+                api, _, _, _ = _get_device_context(hass)
+                if api:
+                    try:
+                        await api.launch(appid="org.jellyfin.JellyfinDesktop", launch_type="app")
+                    except Exception:
+                        _LOGGER.warning("Could not launch Jellyfin app")
+                    await asyncio.sleep(5)
+                    session_id = await _jellyfin_find_session(jf_url, jf_key)
+
+            if session_id and item_id:
+                # Use Jellyfin's DisplayContent API to navigate within the app
+                headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
+                view_url = (
+                    f"{jf_url}/Sessions/{session_id}/Viewing"
+                    f"?itemType={item_type}&itemId={item_id}&itemName={item_name}"
+                )
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        view_url, headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        if resp.status < 400:
+                            response = intent_obj.create_response()
+                            response.async_set_speech(
+                                f"Showing {item_name} on Jellyfin."
+                            )
+                            return response
 
             response = intent_obj.create_response()
-            response.async_set_speech(f"Opening {item_name} on Jellyfin.")
+            response.async_set_speech(
+                f"Found {item_name}, but no active Jellyfin session. "
+                f"Open Jellyfin on the SteamOS device first."
+            )
             return response
 
         except asyncio.TimeoutError:
