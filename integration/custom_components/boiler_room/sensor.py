@@ -36,6 +36,8 @@ async def async_setup_entry(
     entities = [
         BoilerRoomCurrentGameSensor(coordinator, device_id, device_name),
         BoilerRoomGameCountSensor(coordinator, device_id, device_name),
+        BoilerRoomGameListSensor(coordinator, device_id, device_name),
+        BoilerRoomAppListSensor(coordinator, device_id, device_name),
         BoilerRoomCPUTempSensor(coordinator, device_id, device_name),
         BoilerRoomGPUTempSensor(coordinator, device_id, device_name),
     ]
@@ -183,3 +185,67 @@ class BoilerRoomBatterySensor(BoilerRoomSensorBase):
         """Return the battery level."""
         val = self._sensors.get("battery_level", -1)
         return val if val >= 0 else None
+
+
+class BoilerRoomGameListSensor(BoilerRoomSensorBase):
+    """Sensor listing all installed Steam games."""
+
+    _attr_name = "Game Library"
+    _attr_icon = "mdi:gamepad-square"
+
+    def __init__(self, coordinator, device_id: str, device_name: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, device_id, device_name)
+        self._attr_unique_id = f"{device_id}_game_list"
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of installed games."""
+        if self.coordinator.data:
+            return len(self.coordinator.data.get("games", []))
+        return 0
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the full game list as attributes."""
+        if not self.coordinator.data:
+            return {"games": []}
+        games = self.coordinator.data.get("games", [])
+        return {
+            "games": [
+                {"name": g.get("name", ""), "appid": g.get("appid", "")}
+                for g in games
+            ]
+        }
+
+
+class BoilerRoomAppListSensor(BoilerRoomSensorBase):
+    """Sensor listing all installed Flatpak apps."""
+
+    _attr_name = "App Library"
+    _attr_icon = "mdi:apps"
+
+    def __init__(self, coordinator, device_id: str, device_name: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, device_id, device_name)
+        self._attr_unique_id = f"{device_id}_app_list"
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of installed apps."""
+        if self.coordinator.data:
+            return len(self.coordinator.data.get("apps", []))
+        return 0
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the full app list as attributes."""
+        if not self.coordinator.data:
+            return {"apps": []}
+        apps = self.coordinator.data.get("apps", [])
+        return {
+            "apps": [
+                {"name": a.get("name", ""), "id": a.get("id", "")}
+                for a in apps
+            ]
+        }

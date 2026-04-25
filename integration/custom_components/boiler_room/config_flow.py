@@ -162,8 +162,15 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
+CONF_JELLYFIN_APP_ID = "jellyfin_app_id"
+CONF_YOUTUBE_APP_ID = "youtube_app_id"
+
+DEFAULT_JELLYFIN_APP = "org.jellyfin.JellyfinDesktop"
+DEFAULT_YOUTUBE_APP = ""
+
+
 class BoilerRoomOptionsFlow(OptionsFlow):
-    """Handle options for Boiler Room (Jellyfin config, etc.)."""
+    """Handle options for Boiler Room (Jellyfin, YouTube, etc.)."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -207,7 +214,16 @@ class BoilerRoomOptionsFlow(OptionsFlow):
                         CONF_JELLYFIN_API_KEY,
                         default=current.get(CONF_JELLYFIN_API_KEY, ""),
                     ): str,
+                    vol.Optional(
+                        CONF_JELLYFIN_APP_ID,
+                        default=current.get(CONF_JELLYFIN_APP_ID, DEFAULT_JELLYFIN_APP),
+                    ): str,
+                    vol.Optional(
+                        CONF_YOUTUBE_APP_ID,
+                        default=current.get(CONF_YOUTUBE_APP_ID, DEFAULT_YOUTUBE_APP),
+                    ): str,
                 }
             ),
             errors=errors,
         )
+

@@ -149,13 +149,18 @@ def _get_device_context(
 
 def _get_jellyfin_config(
     hass: HomeAssistant,
-) -> tuple[str, str] | None:
-    """Get Jellyfin URL and API key from the first config entry's options."""
+) -> dict[str, str] | None:
+    """Get Jellyfin config from the first config entry's options."""
     for entry in hass.config_entries.async_entries(DOMAIN):
         jf_url = entry.options.get("jellyfin_url", "").strip()
         jf_key = entry.options.get("jellyfin_api_key", "").strip()
         if jf_url and jf_key:
-            return jf_url.rstrip("/"), jf_key
+            return {
+                "url": jf_url.rstrip("/"),
+                "api_key": jf_key,
+                "app_id": entry.options.get("jellyfin_app_id", "org.jellyfin.JellyfinDesktop").strip(),
+                "youtube_app_id": entry.options.get("youtube_app_id", "").strip(),
+            }
     return None
 
 
@@ -393,7 +398,9 @@ class BoilerRoomJellyfinSearchIntent(intent.IntentHandler):
             )
             return response
 
-        jf_url, jf_key = jf_config
+        jf_url = jf_config["url"]
+        jf_key = jf_config["api_key"]
+        jf_app = jf_config["app_id"]
 
         try:
             items = await _jellyfin_search(jf_url, jf_key, query, media_type)
@@ -417,9 +424,9 @@ class BoilerRoomJellyfinSearchIntent(intent.IntentHandler):
             # Only launch the app if no session exists
             if not session_id:
                 api, _, _, _ = _get_device_context(hass)
-                if api:
+                if api and jf_app:
                     try:
-                        await api.launch(appid="org.jellyfin.JellyfinDesktop", launch_type="app")
+                        await api.launch(appid=jf_app, launch_type="app")
                     except Exception:
                         _LOGGER.warning("Could not launch Jellyfin app")
                     await asyncio.sleep(5)
@@ -489,7 +496,9 @@ class BoilerRoomJellyfinBrowseIntent(intent.IntentHandler):
             )
             return response
 
-        jf_url, jf_key = jf_config
+        jf_url = jf_config["url"]
+        jf_key = jf_config["api_key"]
+        jf_app = jf_config["app_id"]
 
         try:
             # Browse uses broader types (includes Person, MusicArtist)
@@ -513,9 +522,9 @@ class BoilerRoomJellyfinBrowseIntent(intent.IntentHandler):
 
             if not session_id:
                 api, _, _, _ = _get_device_context(hass)
-                if api:
+                if api and jf_app:
                     try:
-                        await api.launch(appid="org.jellyfin.JellyfinDesktop", launch_type="app")
+                        await api.launch(appid=jf_app, launch_type="app")
                     except Exception:
                         _LOGGER.warning("Could not launch Jellyfin app")
                     await asyncio.sleep(5)
