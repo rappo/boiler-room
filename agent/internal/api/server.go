@@ -139,34 +139,53 @@ func (s *Server) Start() error {
 // --- Status ---
 
 type statusResponse struct {
-	Version       string `json:"version"`
-	State         string `json:"state"`
-	DeviceName    string `json:"device_name"`
-	DeviceID      string `json:"device_id"`
-	UptimeSeconds int64  `json:"uptime_seconds"`
-	GamingMode    bool   `json:"gaming_mode"`
-	IPAddress     string `json:"ip_address,omitempty"`
-	MACAddress    string `json:"mac_address,omitempty"`
-	GameCount     int    `json:"game_count"`
-	AppCount      int    `json:"app_count"`
-	ShortcutCount int    `json:"shortcut_count"`
-	PluginCount   int    `json:"plugin_count"`
+	Version        string `json:"version"`
+	State          string `json:"state"`
+	CurrentApp     string `json:"current_app,omitempty"`
+	CurrentAppType string `json:"current_app_type,omitempty"`
+	DeviceName     string `json:"device_name"`
+	DeviceID       string `json:"device_id"`
+	UptimeSeconds  int64  `json:"uptime_seconds"`
+	GamingMode     bool   `json:"gaming_mode"`
+	IPAddress      string `json:"ip_address,omitempty"`
+	MACAddress     string `json:"mac_address,omitempty"`
+	GameCount      int    `json:"game_count"`
+	AppCount       int    `json:"app_count"`
+	ShortcutCount  int    `json:"shortcut_count"`
+	PluginCount    int    `json:"plugin_count"`
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	// Build a map of appID -> game name for active app detection
+	gameNames := make(map[string]string)
+	for _, g := range s.scanner.GetCached() {
+		gameNames[g.AppID] = g.Name
+	}
+
+	activeApp := system.ActiveApp(gameNames)
+
+	state := "idle"
+	if activeApp.AppType == "game" {
+		state = "playing"
+	} else if activeApp.AppType == "app" {
+		state = "running"
+	}
+
 	resp := statusResponse{
-		Version:       s.version,
-		State:         "idle",
-		DeviceName:    s.deviceName,
-		DeviceID:      s.sysInfo.DeviceID,
-		UptimeSeconds: s.sysInfo.UptimeSeconds(),
-		GamingMode:    system.IsGamingMode(),
-		IPAddress:     s.sysInfo.IPAddress,
-		MACAddress:    s.sysInfo.MacAddress,
-		GameCount:     len(s.scanner.GetCached()),
-		AppCount:      len(s.flatpaks),
-		ShortcutCount: len(s.shortcuts),
-		PluginCount:   len(s.pluginManager.List()),
+		Version:        s.version,
+		State:          state,
+		CurrentApp:     activeApp.Name,
+		CurrentAppType: activeApp.AppType,
+		DeviceName:     s.deviceName,
+		DeviceID:       s.sysInfo.DeviceID,
+		UptimeSeconds:  s.sysInfo.UptimeSeconds(),
+		GamingMode:     system.IsGamingMode(),
+		IPAddress:      s.sysInfo.IPAddress,
+		MACAddress:     s.sysInfo.MacAddress,
+		GameCount:      len(s.scanner.GetCached()),
+		AppCount:       len(s.flatpaks),
+		ShortcutCount:  len(s.shortcuts),
+		PluginCount:    len(s.pluginManager.List()),
 	}
 
 	s.writeJSON(w, http.StatusOK, resp)

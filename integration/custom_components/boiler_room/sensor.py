@@ -89,9 +89,9 @@ class BoilerRoomSensorBase(CoordinatorEntity, SensorEntity):
 
 
 class BoilerRoomCurrentGameSensor(BoilerRoomSensorBase):
-    """Sensor showing the currently running game."""
+    """Sensor showing the currently active game or app."""
 
-    _attr_name = "Current Game"
+    _attr_name = "Current Activity"
     _attr_icon = "mdi:gamepad-variant"
 
     def __init__(self, coordinator, device_id: str, device_name: str) -> None:
@@ -101,10 +101,22 @@ class BoilerRoomCurrentGameSensor(BoilerRoomSensorBase):
 
     @property
     def native_value(self) -> str:
-        """Return the current game name, or 'Idle'."""
-        if self._status and self._status.get("state") == "playing":
-            return self._status.get("current_app", "Unknown")
+        """Return the current game/app name, or 'Idle'."""
+        if self._status:
+            app_name = self._status.get("current_app", "")
+            if app_name:
+                return app_name
         return "Idle"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional attributes about the current activity."""
+        if not self._status:
+            return {}
+        return {
+            "state": self._status.get("state", "idle"),
+            "app_type": self._status.get("current_app_type", "idle"),
+        }
 
 
 class BoilerRoomGameCountSensor(BoilerRoomSensorBase):

@@ -266,3 +266,87 @@ func BatteryCharging() bool {
 	}
 	return strings.TrimSpace(string(data)) == "Charging"
 }
+
+// ActiveAppInfo contains information about the currently active application.
+type ActiveAppInfo struct {
+	Name    string `json:"name"`
+	AppType string `json:"type"` // "game", "app", "desktop", "steam"
+}
+
+// ActiveApp detects what is currently running in the foreground.
+// It checks the active window title and running processes.
+func ActiveApp(gameNames map[string]string) ActiveAppInfo {
+	// Try xdotool to get the active window name
+	out, err := exec.Command("xdotool", "getactivewindow", "getwindowname").Output()
+	if err == nil {
+		windowName := strings.TrimSpace(string(out))
+		if windowName != "" {
+			return classifyWindow(windowName, gameNames)
+		}
+	}
+
+	// Fallback: check for running Steam game via process list
+	out, err = exec.Command("pgrep", "-a", "reaper").Output()
+	if err == nil {
+		line := string(out)
+		// Steam reaper process contains the AppID
+		if strings.Contains(line, "SteamLaunch AppId=") {
+			parts := strings.Split(line, "AppId=")
+			if len(parts) > 1 {
+				appID := strings.Fields(parts[1])[0]
+				if name, ok := gameNames[appID]; ok {
+					return ActiveAppInfo{Name: name, AppType: "game"}
+				}
+				return ActiveAppInfo{Name: "Steam Game " + appID, AppType: "game"}
+			}
+		}
+	}
+
+	return ActiveAppInfo{Name: "", AppType: "idle"}
+}
+
+// classifyWindow determines the app type from a window title.
+func classifyWindow(title string, gameNames map[string]string) ActiveAppInfo {
+	lower := strings.ToLower(title)
+
+	// Check for known app patterns
+	knownApps := map[string]string{
+		"jellyfin":    "Jellyfin",
+		"firefox":     "Firefox",
+		"chrome":      "Chrome",
+		"chromium":    "Chromium",
+		"vacuumtube":  "VacuumTube",
+		"kodi":        "Kodi",
+		"retroarch":   "RetroArch",
+		"konsole":     "Konsole",
+		"dolphin":     "Dolphin",
+		"feishin":     "Feishin",
+		"spotify":     "Spotify",
+	}
+
+	for keyword, appName := range knownApps {
+		if strings.Contains(lower, keyword) {
+			return ActiveAppInfo{Name: appName, AppType: "app"}
+		}
+	}
+
+	// Check if it matches a known game name
+	for _, name := range gameNames {
+		if strings.EqualFold(title, name) || strings.Contains(lower, strings.ToLower(name)) {
+			return ActiveAppInfo{Name: name, AppType: "game"}
+		}
+	}
+
+	// Steam itself
+	if lower == "steam" || strings.HasPrefix(lower, "steam -") {
+		return ActiveAppInfo{Name: "Steam", AppType: "steam"}
+	}
+
+	// Desktop environment
+	if strings.Contains(lower, "desktop") || strings.Contains(lower, "plasma") {
+		return ActiveAppInfo{Name: "", AppType: "desktop"}
+	}
+
+	// Unknown but active window
+	return ActiveAppInfo{Name: title, AppType: "app"}
+}
