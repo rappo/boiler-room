@@ -96,9 +96,23 @@ func (i *Info) getIPAddress() string {
 	return localAddr.IP.String()
 }
 
-// IsGamingMode detects if SteamOS is in Gaming Mode by checking for gamescope.
+// IsGamingMode detects if SteamOS is in Gaming Mode.
+// Uses steamosctl as the authoritative source, falls back to gamescope detection.
 func IsGamingMode() bool {
-	out, err := exec.Command("pgrep", "-x", "gamescope").Output()
+	// Primary: ask steamosctl directly
+	out, err := exec.Command("steamosctl", "get-session-type").Output()
+	if err == nil {
+		sessionType := strings.TrimSpace(strings.ToLower(string(out)))
+		if sessionType == "gamescope" || sessionType == "gaming" || sessionType == "game" {
+			return true
+		}
+		if sessionType == "plasma" || sessionType == "desktop" || sessionType == "wayland" {
+			return false
+		}
+	}
+
+	// Fallback: check for gamescope process (partial match)
+	out, err = exec.Command("pgrep", "-f", "gamescope").Output()
 	if err != nil {
 		return false
 	}
