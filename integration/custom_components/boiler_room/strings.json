@@ -22,5 +22,25 @@
     "error": {
       "cannot_connect": "Cannot connect to the agent at the specified address. Make sure you ran the install script on the SteamOS device first."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Boiler Room Settings",
+        "description": "Configure optional integrations for your SteamOS device.",
+        "data": {
+          "jellyfin_url": "Jellyfin Server URL",
+          "jellyfin_api_key": "Jellyfin API Key"
+        },
+        "data_description": {
+          "jellyfin_url": "e.g. http://192.168.1.50:8096",
+          "jellyfin_api_key": "Generate in Jellyfin Dashboard → API Keys"
+        }
+      }
+    },
+    "error": {
+      "jellyfin_auth_failed": "Jellyfin authentication failed. Check your API key.",
+      "jellyfin_connect_failed": "Could not connect to Jellyfin server. Check the URL."
+    }
   }
 }

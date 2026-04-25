@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .api import BoilerRoomAPI
@@ -22,6 +21,9 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+CONF_JELLYFIN_URL = "jellyfin_url"
+CONF_JELLYFIN_API_KEY = "jellyfin_api_key"
 
 
 class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -37,6 +39,11 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
         self._device_id: str = ""
         self._game_count: int = 0
         self._app_count: int = 0
+
+    @staticmethod
+    def async_get_options_flow(config_entry):
+        """Return the options flow handler."""
+        return BoilerRoomOptionsFlow(config_entry)
 
     # ─── Step 1: Connect to agent ───
 
@@ -152,4 +159,59 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
                 "game_count": str(self._game_count),
                 "app_count": str(self._app_count),
             },
+        )
+
+
+class BoilerRoomOptionsFlow(OptionsFlow):
+    """Handle options for Boiler Room (Jellyfin config, etc.)."""
+
+    def __init__(self, config_entry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the options."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            # Validate Jellyfin connection if URL provided
+            jf_url = user_input.get(CONF_JELLYFIN_URL, "").strip()
+            jf_key = user_input.get(CONF_JELLYFIN_API_KEY, "").strip()
+
+            if jf_url and jf_key:
+                import aiohttp
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
+                        async with session.get(
+                            f"{jf_url.rstrip('/')}/System/Info",
+                            headers=headers,
+                            timeout=aiohttp.ClientTimeout(total=5),
+                        ) as resp:
+                            if resp.status != 200:
+                                errors["base"] = "jellyfin_auth_failed"
+                except Exception:
+                    errors["base"] = "jellyfin_connect_failed"
+
+            if not errors:
+                return self.async_create_entry(title="", data=user_input)
+
+        current = self.config_entry.options
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_JELLYFIN_URL,
+                        default=current.get(CONF_JELLYFIN_URL, ""),
+                    ): str,
+                    vol.Optional(
+                        CONF_JELLYFIN_API_KEY,
+                        default=current.get(CONF_JELLYFIN_API_KEY, ""),
+                    ): str,
+                }
+            ),
+            errors=errors,
         )

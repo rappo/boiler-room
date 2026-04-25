@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
+
+import aiohttp
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
@@ -109,6 +112,7 @@ async def async_setup_intents(hass: HomeAssistant) -> None:
     intent.async_register(hass, BoilerRoomLaunchGameIntent())
     intent.async_register(hass, BoilerRoomOpenAppIntent())
     intent.async_register(hass, BoilerRoomSystemControlIntent())
+    intent.async_register(hass, BoilerRoomJellyfinSearchIntent())
     _LOGGER.info("Boiler Room voice command intents registered")
 
 
@@ -309,3 +313,150 @@ def _get_device_context(
             aliases = entry_data.get("aliases")
             return api, games, apps, aliases
     return None, [], [], None
+
+
+def _get_jellyfin_config(
+    hass: HomeAssistant,
+) -> tuple[str, str] | None:
+    """Get Jellyfin URL and API key from the first config entry's options."""
+    from homeassistant.config_entries import ConfigEntry
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        jf_url = entry.options.get("jellyfin_url", "").strip()
+        jf_key = entry.options.get("jellyfin_api_key", "").strip()
+        if jf_url and jf_key:
+            return jf_url.rstrip("/"), jf_key
+    return None
+
+
+class BoilerRoomJellyfinSearchIntent(intent.IntentHandler):
+    """Handle the BoilerRoomJellyfinSearch intent.
+
+    Searches Jellyfin, launches the Jellyfin app on SteamOS,
+    then sends a play command to the active session.
+    """
+
+    intent_type = "BoilerRoomJellyfinSearch"
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        """Handle the intent."""
+        hass = intent_obj.hass
+        query = intent_obj.slots.get("query", {}).get("value", "")
+
+        if not query:
+            response = intent_obj.create_response()
+            response.async_set_speech("What would you like to watch?")
+            return response
+
+        # Check Jellyfin config
+        jf_config = _get_jellyfin_config(hass)
+        if not jf_config:
+            response = intent_obj.create_response()
+            response.async_set_speech(
+                "Jellyfin is not configured. Go to Settings, Integrations, "
+                "Boiler Room, Configure to add your Jellyfin server."
+            )
+            return response
+
+        jf_url, jf_key = jf_config
+        headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Search Jellyfin
+                search_url = (
+                    f"{jf_url}/Items?searchTerm={query}"
+                    f"&Limit=5&Recursive=true"
+                    f"&IncludeItemTypes=Movie,Series,Audio,MusicAlbum,Episode"
+                )
+                async with session.get(
+                    search_url, headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status != 200:
+                        response = intent_obj.create_response()
+                        response.async_set_speech("Jellyfin search failed.")
+                        return response
+                    data = await resp.json()
+
+                items = data.get("Items", [])
+                if not items:
+                    response = intent_obj.create_response()
+                    response.async_set_speech(
+                        f"I couldn't find anything matching '{query}' on Jellyfin."
+                    )
+                    return response
+
+                item = items[0]
+                item_name = item.get("Name", query)
+                item_id = item.get("Id", "")
+                item_type = item.get("Type", "")
+
+                # Launch Jellyfin app on the SteamOS device
+                api, _, apps_list, _ = _get_device_context(hass)
+                if api:
+                    # Try to launch Jellyfin app
+                    try:
+                        await api.launch(
+                            appid="org.jellyfin.JellyfinDesktop",
+                            launch_type="app",
+                        )
+                    except Exception:
+                        _LOGGER.warning("Could not launch Jellyfin app")
+
+                    # Wait for Jellyfin to start and register a session
+                    await asyncio.sleep(5)
+
+                # Find active Jellyfin session and send play command
+                sessions_url = f"{jf_url}/Sessions"
+                async with session.get(
+                    sessions_url, headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    sessions = await resp.json() if resp.status == 200 else []
+
+                # Find a controllable session
+                session_id = None
+                for s in sessions:
+                    client = (s.get("Client") or "").lower()
+                    caps = s.get("Capabilities", {})
+                    if caps.get("SupportsMediaControl"):
+                        # Prefer Jellyfin desktop/media player clients
+                        if any(kw in client for kw in ["jellyfin", "media player", "mpv"]):
+                            session_id = s.get("Id")
+                            break
+                        if not session_id:
+                            session_id = s.get("Id")
+
+                if session_id and item_id:
+                    play_url = (
+                        f"{jf_url}/Sessions/{session_id}/Playing"
+                        f"?ItemIds={item_id}&PlayCommand=PlayNow"
+                    )
+                    async with session.post(
+                        play_url, headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        if resp.status < 400:
+                            response = intent_obj.create_response()
+                            response.async_set_speech(
+                                f"Playing {item_name} on Jellyfin."
+                            )
+                            return response
+
+                # Fallback: found content but couldn't start playback
+                response = intent_obj.create_response()
+                response.async_set_speech(
+                    f"Found {item_name} on Jellyfin, but no active player session. "
+                    f"Open Jellyfin on the SteamOS device first."
+                )
+                return response
+
+        except asyncio.TimeoutError:
+            response = intent_obj.create_response()
+            response.async_set_speech("Jellyfin server didn't respond in time.")
+            return response
+        except Exception as err:
+            _LOGGER.exception("Jellyfin search failed")
+            response = intent_obj.create_response()
+            response.async_set_speech(f"Jellyfin error: {err}")
+            return response
