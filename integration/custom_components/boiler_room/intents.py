@@ -311,9 +311,11 @@ class BoilerRoomSystemControlIntent(intent.IntentHandler):
 # ─── Jellyfin Helpers ───
 
 _MEDIA_TYPE_DEFAULT = "Movie,Series,Audio,MusicAlbum,Episode"
+_BROWSE_TYPE_DEFAULT = "Movie,Series,Audio,MusicAlbum,MusicArtist,Person,Episode"
 _TYPE_LABELS = {
     "Movie": "movie", "Series": "show", "MusicAlbum": "album",
     "Audio": "song", "Episode": "episode", "MusicArtist": "artist",
+    "Person": "person",
 }
 
 
@@ -490,7 +492,9 @@ class BoilerRoomJellyfinBrowseIntent(intent.IntentHandler):
         jf_url, jf_key = jf_config
 
         try:
-            items = await _jellyfin_search(jf_url, jf_key, query, media_type)
+            # Browse uses broader types (includes Person, MusicArtist)
+            search_types = media_type or _BROWSE_TYPE_DEFAULT
+            items = await _jellyfin_search(jf_url, jf_key, query, search_types)
             if not items:
                 response = intent_obj.create_response()
                 response.async_set_speech(
@@ -504,24 +508,18 @@ class BoilerRoomJellyfinBrowseIntent(intent.IntentHandler):
             item_type = item.get("Type", "")
             type_label = _TYPE_LABELS.get(item_type, item_type.lower())
 
-            # Check for existing session
+            # Only launch the app if no session exists
             session_id = await _jellyfin_find_session(jf_url, jf_key)
 
-            # Always launch/focus the app (brings it to foreground)
-            api, _, _, _ = _get_device_context(hass)
-            if api:
-                try:
-                    await api.launch(appid="org.jellyfin.JellyfinDesktop", launch_type="app")
-                except Exception:
-                    _LOGGER.warning("Could not launch Jellyfin app")
-
-                if not session_id:
-                    # First launch — wait for session to register
+            if not session_id:
+                api, _, _, _ = _get_device_context(hass)
+                if api:
+                    try:
+                        await api.launch(appid="org.jellyfin.JellyfinDesktop", launch_type="app")
+                    except Exception:
+                        _LOGGER.warning("Could not launch Jellyfin app")
                     await asyncio.sleep(5)
                     session_id = await _jellyfin_find_session(jf_url, jf_key)
-                else:
-                    # Already running — brief pause for focus
-                    await asyncio.sleep(1)
 
             if session_id and item_id:
                 # Use Jellyfin's DisplayContent API to navigate within the app
