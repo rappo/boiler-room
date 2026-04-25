@@ -3,11 +3,13 @@ package system
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // VolumeGet returns the current system volume (0-100) via PipeWire/PulseAudio.
@@ -391,4 +393,55 @@ func classifyWindow(title string, gameNames map[string]string) ActiveAppInfo {
 
 	// Unknown but active window
 	return ActiveAppInfo{Name: title, AppType: "app"}
+}
+
+// AmbientTemp reads the ambient/case temperature from ACPI thermal zones.
+func AmbientTemp() (float64, error) {
+	// Try ACPI thermal zone first
+	if temp, err := readThermalZone("acpitz"); err == nil {
+		return temp, nil
+	}
+	// Try gigabyte_wmi or other board sensors via hwmon
+	if temp, err := readHwmonTemp("gigabyte_wmi"); err == nil {
+		return temp, nil
+	}
+	return 0, fmt.Errorf("no ambient temp sensor found")
+}
+
+// DiskUsage returns total, used, and free space in GB for the given path.
+func DiskUsage(path string) (totalGB, usedGB, freeGB float64) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return 0, 0, 0
+	}
+
+	total := float64(stat.Blocks) * float64(stat.Bsize)
+	free := float64(stat.Bavail) * float64(stat.Bsize)
+	used := total - free
+
+	const gb = 1024 * 1024 * 1024
+	return math.Round(total/gb*10) / 10,
+		math.Round(used/gb*10) / 10,
+		math.Round(free/gb*10) / 10
+}
+
+// DirSizeGB returns the size of a directory in GB using du.
+func DirSizeGB(path string) float64 {
+	if path == "" {
+		path = "/home/deck"
+	}
+	out, err := exec.Command("du", "-sb", path).Output()
+	if err != nil {
+		return 0
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		return 0
+	}
+	bytes, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return 0
+	}
+	const gb = 1024 * 1024 * 1024
+	return math.Round(bytes/gb*10) / 10
 }

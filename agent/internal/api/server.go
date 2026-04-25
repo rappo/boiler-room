@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -425,25 +426,51 @@ func (s *Server) handleLaunchURL(w http.ResponseWriter, req launchRequest) {
 
 // --- System Sensors ---
 
+type diskUsage struct {
+	TotalGB float64 `json:"total_gb"`
+	UsedGB  float64 `json:"used_gb"`
+	FreeGB  float64 `json:"free_gb"`
+	UsedPct float64 `json:"used_pct"`
+}
+
 type sensorsResponse struct {
-	CPUTemp         float64 `json:"cpu_temp"`
-	GPUTemp         float64 `json:"gpu_temp"`
-	Volume          int     `json:"volume"`
-	BatteryLevel    int     `json:"battery_level"`    // -1 if no battery
-	BatteryCharging bool    `json:"battery_charging"`
+	CPUTemp         float64   `json:"cpu_temp"`
+	GPUTemp         float64   `json:"gpu_temp"`
+	AmbientTemp     float64   `json:"ambient_temp"`
+	Volume          int       `json:"volume"`
+	BatteryLevel    int       `json:"battery_level"`    // -1 if no battery
+	BatteryCharging bool      `json:"battery_charging"`
+	Disk            diskUsage `json:"disk"`
+	HomeSizeGB      float64   `json:"home_size_gb"`
 }
 
 func (s *Server) handleSensors(w http.ResponseWriter, r *http.Request) {
 	cpuTemp, _ := system.CPUTemp()
 	gpuTemp, _ := system.GPUTemp()
+	ambientTemp, _ := system.AmbientTemp()
 	volume, _ := system.VolumeGet()
+	diskTotal, diskUsed, diskFree := system.DiskUsage("/")
+	homeSize := system.DirSizeGB(os.Getenv("HOME"))
+
+	usedPct := 0.0
+	if diskTotal > 0 {
+		usedPct = (diskUsed / diskTotal) * 100
+	}
 
 	resp := sensorsResponse{
 		CPUTemp:         cpuTemp,
 		GPUTemp:         gpuTemp,
+		AmbientTemp:     ambientTemp,
 		Volume:          volume,
 		BatteryLevel:    system.BatteryLevel(),
 		BatteryCharging: system.BatteryCharging(),
+		Disk: diskUsage{
+			TotalGB: diskTotal,
+			UsedGB:  diskUsed,
+			FreeGB:  diskFree,
+			UsedPct: math.Round(usedPct*10) / 10,
+		},
+		HomeSizeGB: homeSize,
 	}
 
 	s.writeJSON(w, http.StatusOK, resp)

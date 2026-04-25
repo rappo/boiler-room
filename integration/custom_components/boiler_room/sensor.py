@@ -11,7 +11,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfTemperature
+from homeassistant.const import PERCENTAGE, UnitOfTemperature, UnitOfInformation
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -40,6 +40,9 @@ async def async_setup_entry(
         BoilerRoomAppListSensor(coordinator, device_id, device_name),
         BoilerRoomCPUTempSensor(coordinator, device_id, device_name),
         BoilerRoomGPUTempSensor(coordinator, device_id, device_name),
+        BoilerRoomAmbientTempSensor(coordinator, device_id, device_name),
+        BoilerRoomDiskUsageSensor(coordinator, device_id, device_name),
+        BoilerRoomHomeSizeSensor(coordinator, device_id, device_name),
     ]
 
     # Only add battery sensor if the device reports one
@@ -261,3 +264,77 @@ class BoilerRoomAppListSensor(BoilerRoomSensorBase):
                 for a in apps
             ]
         }
+
+
+class BoilerRoomAmbientTempSensor(BoilerRoomSensorBase):
+    """Sensor showing ambient/case temperature."""
+
+    _attr_name = "Ambient Temperature"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
+    def __init__(self, coordinator, device_id: str, device_name: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, device_id, device_name)
+        self._attr_unique_id = f"{device_id}_ambient_temp"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the ambient temperature."""
+        val = self._sensors.get("ambient_temp", 0)
+        return round(val, 1) if val else None
+
+
+class BoilerRoomDiskUsageSensor(BoilerRoomSensorBase):
+    """Sensor showing disk usage."""
+
+    _attr_name = "Disk Usage"
+    _attr_icon = "mdi:harddisk"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = PERCENTAGE
+
+    def __init__(self, coordinator, device_id: str, device_name: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, device_id, device_name)
+        self._attr_unique_id = f"{device_id}_disk_usage"
+
+    @property
+    def _disk(self) -> dict[str, Any]:
+        """Get disk data from sensors."""
+        return self._sensors.get("disk", {})
+
+    @property
+    def native_value(self) -> float | None:
+        """Return disk usage percentage."""
+        return self._disk.get("used_pct")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return disk size details."""
+        disk = self._disk
+        return {
+            "total_gb": disk.get("total_gb", 0),
+            "used_gb": disk.get("used_gb", 0),
+            "free_gb": disk.get("free_gb", 0),
+        }
+
+
+class BoilerRoomHomeSizeSensor(BoilerRoomSensorBase):
+    """Sensor showing home directory size."""
+
+    _attr_name = "Home Directory Size"
+    _attr_icon = "mdi:folder-home"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "GB"
+
+    def __init__(self, coordinator, device_id: str, device_name: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, device_id, device_name)
+        self._attr_unique_id = f"{device_id}_home_size"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return home directory size in GB."""
+        val = self._sensors.get("home_size_gb", 0)
+        return val if val > 0 else None
