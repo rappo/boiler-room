@@ -30,7 +30,7 @@ echo -e "${YELLOW}→ Downloading agent binary...${NC}"
 mkdir -p "$INSTALL_DIR"
 
 if [ "$VERSION" = "latest" ]; then
-  URL="${REPO_BASE}/releases/download/v0.5.2/${BINARY}-linux-amd64"
+  URL="${REPO_BASE}/releases/download/v0.5.3/${BINARY}-linux-amd64"
 else
   URL="${REPO_BASE}/releases/download/v${VERSION}/${BINARY}-linux-amd64"
 fi

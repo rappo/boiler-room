@@ -176,12 +176,71 @@ func steamDBusFromProc() string {
 
 // CPUTemp reads CPU temperature in degrees Celsius.
 func CPUTemp() (float64, error) {
-	return readThermalZone("x86_pkg_temp", "coretemp")
+	// Try hwmon first (more reliable across systems)
+	if temp, err := readHwmonTemp("k10temp"); err == nil {
+		return temp, nil
+	}
+	if temp, err := readHwmonTemp("coretemp"); err == nil {
+		return temp, nil
+	}
+	// Fallback to thermal zones
+	return readThermalZone("k10temp", "x86_pkg_temp", "coretemp")
 }
 
 // GPUTemp reads GPU temperature in degrees Celsius.
 func GPUTemp() (float64, error) {
+	// Try hwmon first (more reliable across systems)
+	if temp, err := readHwmonTemp("amdgpu"); err == nil {
+		return temp, nil
+	}
+	if temp, err := readHwmonTemp("radeon"); err == nil {
+		return temp, nil
+	}
+	if temp, err := readHwmonTemp("nouveau"); err == nil {
+		return temp, nil
+	}
+	// Fallback to thermal zones
 	return readThermalZone("amdgpu", "radeon")
+}
+
+// readHwmonTemp reads temperature from /sys/class/hwmon/ by driver name.
+// This is more reliable than thermal zones on many systems.
+func readHwmonTemp(driverName string) (float64, error) {
+	entries, err := os.ReadDir("/sys/class/hwmon")
+	if err != nil {
+		return 0, err
+	}
+
+	for _, entry := range entries {
+		namePath := filepath.Join("/sys/class/hwmon", entry.Name(), "name")
+		nameData, err := os.ReadFile(namePath)
+		if err != nil {
+			continue
+		}
+		name := strings.TrimSpace(string(nameData))
+		if !strings.EqualFold(name, driverName) {
+			continue
+		}
+
+		// Read temp1_input (primary temp for most drivers)
+		tempPath := filepath.Join("/sys/class/hwmon", entry.Name(), "temp1_input")
+		tempData, err := os.ReadFile(tempPath)
+		if err != nil {
+			// Try temp2_input as fallback (some GPUs use this for junction)
+			tempPath = filepath.Join("/sys/class/hwmon", entry.Name(), "temp2_input")
+			tempData, err = os.ReadFile(tempPath)
+			if err != nil {
+				continue
+			}
+		}
+		milliC, err := strconv.ParseFloat(strings.TrimSpace(string(tempData)), 64)
+		if err != nil {
+			continue
+		}
+		return milliC / 1000.0, nil
+	}
+
+	return 0, fmt.Errorf("hwmon sensor %s not found", driverName)
 }
 
 // readThermalZone searches /sys/class/thermal/ for a matching zone type.
@@ -219,24 +278,7 @@ func readThermalZone(names ...string) (float64, error) {
 		}
 	}
 
-	// Fallback: read first available thermal zone
-	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), "thermal_zone") {
-			continue
-		}
-		tempPath := filepath.Join("/sys/class/thermal", entry.Name(), "temp")
-		tempData, err := os.ReadFile(tempPath)
-		if err != nil {
-			continue
-		}
-		milliC, err := strconv.ParseFloat(strings.TrimSpace(string(tempData)), 64)
-		if err != nil {
-			continue
-		}
-		return milliC / 1000.0, nil
-	}
-
-	return 0, fmt.Errorf("no thermal zone found")
+	return 0, fmt.Errorf("no thermal zone found for %v", names)
 }
 
 // BatteryLevel returns battery percentage (0-100) or -1 if no battery.
