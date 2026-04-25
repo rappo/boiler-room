@@ -611,14 +611,14 @@ func (s *Server) handleSessionMode(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "mode": "desktop"})
 		go func() {
 			time.Sleep(500 * time.Millisecond)
-			exec.Command("steamos-session-select", "plasma").Run()
+			exec.Command("steamosctl", "switch-to-desktop-mode").Run()
 		}()
 	case "gaming":
 		log.Println("Switching to Gaming Mode...")
 		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "mode": "gaming"})
 		go func() {
 			time.Sleep(500 * time.Millisecond)
-			exec.Command("steamos-session-select", "gamescope").Run()
+			exec.Command("steamosctl", "switch-to-game-mode").Run()
 		}()
 	default:
 		s.writeError(w, http.StatusBadRequest, "mode must be 'desktop' or 'gaming'")
