@@ -167,6 +167,8 @@ CONF_YOUTUBE_APP_ID = "youtube_app_id"
 CONF_CACHE_ARTISTS = "cache_artists"
 CONF_CACHE_ALBUMS = "cache_albums"
 CONF_CACHE_INTERVAL = "cache_interval"
+CONF_ENABLE_VOICE_INTENTS = "enable_voice_intents"
+CONF_APP_ALIASES = "app_aliases"
 
 DEFAULT_JELLYFIN_APP = "org.jellyfin.JellyfinDesktop"
 DEFAULT_YOUTUBE_APP = ""
@@ -238,6 +240,14 @@ class BoilerRoomOptionsFlow(OptionsFlow):
                         CONF_CACHE_INTERVAL,
                         default=current.get(CONF_CACHE_INTERVAL, DEFAULT_CACHE_INTERVAL),
                     ): vol.All(int, vol.Range(min=5, max=1440)),
+                    vol.Optional(
+                        CONF_APP_ALIASES,
+                        default=current.get(CONF_APP_ALIASES, ""),
+                    ): str,
+                    vol.Optional(
+                        CONF_ENABLE_VOICE_INTENTS,
+                        default=current.get(CONF_ENABLE_VOICE_INTENTS, True),
+                    ): bool,
                 }
             ),
             errors=errors,

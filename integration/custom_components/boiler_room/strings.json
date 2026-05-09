@@ -35,7 +35,9 @@
           "youtube_app_id": "YouTube Client App (Flatpak ID)",
           "cache_artists": "Cache artists for voice matching",
           "cache_albums": "Cache albums for voice matching",
-          "cache_interval": "Cache refresh interval (minutes)"
+          "cache_interval": "Cache refresh interval (minutes)",
+          "app_aliases": "App aliases",
+          "enable_voice_intents": "Enable built-in voice intents"
         },
         "data_description": {
           "jellyfin_url": "e.g. http://192.168.1.50:8096",
@@ -44,7 +46,9 @@
           "youtube_app_id": "Leave empty to use the system browser. e.g. dev.nickvdp.vacuumtube",
           "cache_artists": "Cache artist names from your Jellyfin library so voice commands can match unusual spellings (e.g. deadmau5, Gorillaz)",
           "cache_albums": "Cache album names for the same phonetic voice matching",
-          "cache_interval": "How often to check for new items (5–1440 minutes)"
+          "cache_interval": "How often to check for new items (5–1440 minutes)",
+          "app_aliases": "Map friendly names to Flatpak app IDs so voice commands use the name you say. Format: youtube=rocks.shy.VacuumTube, browser=org.mozilla.firefox",
+          "enable_voice_intents": "When enabled, built-in sentence patterns are active. Disable if you prefer to use your own automations with Boiler Room services."
         }
       }
     },

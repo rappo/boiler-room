@@ -1,0 +1,180 @@
+blueprint:
+  name: "Boiler Room: Jellyfin Media"
+  description: >
+    Voice commands for Jellyfin media playback and browsing.
+    Say "Play No Man's Sky soundtrack on Jellyfin", "Pause Jellyfin",
+    "Show me Akira Kurosawa on Jellyfin", "Search YouTube for cat videos", etc.
+    Supports phonetic matching for unusual artist/album spellings.
+  domain: automation
+
+mode: single
+
+triggers:
+  # ─── Jellyfin Play ───
+  - trigger: conversation
+    command:
+      - "(Play|Watch|Listen to|Put on) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+    id: jellyfin_play
+  - trigger: conversation
+    command:
+      - "(Play|Watch|Put on) the movie {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+    id: jellyfin_play_movie
+  - trigger: conversation
+    command:
+      - "(Play|Watch|Put on) the (show|series|tv show) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+    id: jellyfin_play_series
+  - trigger: conversation
+    command:
+      - "(Play|Listen to|Put on) the album {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+    id: jellyfin_play_album
+  - trigger: conversation
+    command:
+      - "(Play|Listen to|Put on) the song {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+    id: jellyfin_play_song
+
+  # ─── Jellyfin Browse ───
+  - trigger: conversation
+    command:
+      - "(Show me|Browse|Look up) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+      - "(Show|Browse|Find|Look up|Go to) the movie {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+      - "(Show|Browse|Find|Look up|Go to) the (show|series|tv show) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+      - "(Show|Browse|Find|Look up|Go to) the (album|artist|band) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+    id: jellyfin_browse
+
+  # ─── Jellyfin Playback Control ───
+  - trigger: conversation
+    command:
+      - "(Pause|Resume|Unpause) (Jellyfin|Jelly Fin|Jellyfish|jelly fin|the stream|playback)"
+    id: jellyfin_pause
+  - trigger: conversation
+    command:
+      - "(Stop) (Jellyfin|Jelly Fin|Jellyfish|jelly fin|the stream|playback)"
+    id: jellyfin_stop
+  - trigger: conversation
+    command:
+      - "(Rewind|Go back|Skip back) (Jellyfin|Jelly Fin|Jellyfish|jelly fin|the stream|playback)"
+    id: jellyfin_rewind
+  - trigger: conversation
+    command:
+      - "(Fast forward|Skip forward|Skip ahead) (Jellyfin|Jelly Fin|Jellyfish|jelly fin|the stream|playback)"
+    id: jellyfin_ff
+
+  # ─── YouTube ───
+  - trigger: conversation
+    command:
+      - "Search YouTube for {query}"
+      - "(Open|Play|Watch) {query} on YouTube"
+    id: youtube
+
+actions:
+  - choose:
+      # ─── Jellyfin Play ───
+      - conditions:
+          - condition: trigger
+            id: jellyfin_play
+        sequence:
+          - action: boiler_room.jellyfin_play
+            data:
+              query: "{{ trigger.slots.query }}"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_play_movie
+        sequence:
+          - action: boiler_room.jellyfin_play
+            data:
+              query: "{{ trigger.slots.query }}"
+              type: "Movie"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_play_series
+        sequence:
+          - action: boiler_room.jellyfin_play
+            data:
+              query: "{{ trigger.slots.query }}"
+              type: "Series"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_play_album
+        sequence:
+          - action: boiler_room.jellyfin_play
+            data:
+              query: "{{ trigger.slots.query }}"
+              type: "MusicAlbum"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_play_song
+        sequence:
+          - action: boiler_room.jellyfin_play
+            data:
+              query: "{{ trigger.slots.query }}"
+              type: "Audio"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+
+      # ─── Jellyfin Browse ───
+      - conditions:
+          - condition: trigger
+            id: jellyfin_browse
+        sequence:
+          - action: boiler_room.jellyfin_browse
+            data:
+              query: "{{ trigger.slots.query }}"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+
+      # ─── Jellyfin Playback Control ───
+      - conditions:
+          - condition: trigger
+            id: jellyfin_pause
+        sequence:
+          - action: boiler_room.jellyfin_control
+            data:
+              action: "pause"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_stop
+        sequence:
+          - action: boiler_room.jellyfin_control
+            data:
+              action: "stop"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_rewind
+        sequence:
+          - action: boiler_room.jellyfin_control
+            data:
+              action: "rewind"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_ff
+        sequence:
+          - action: boiler_room.jellyfin_control
+            data:
+              action: "fastforward"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+
+      # ─── YouTube ───
+      - conditions:
+          - condition: trigger
+            id: youtube
+        sequence:
+          - action: boiler_room.youtube_search
+            data:
+              query: "{{ trigger.slots.query }}"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"

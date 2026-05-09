@@ -1,0 +1,78 @@
+blueprint:
+  name: "Boiler Room: System Controls"
+  description: >
+    Voice commands for SteamOS device power and volume control.
+    Say "Wake up the steam machine", "Suspend the deck", "Set volume to 50", etc.
+  domain: automation
+
+mode: single
+
+triggers:
+  - trigger: conversation
+    command:
+      - "(Wake up|Turn on|Power on) the (deck|steam machine|gaming pc)"
+    id: wake
+  - trigger: conversation
+    command:
+      - "(Suspend|Sleep) the (deck|steam machine|gaming pc)"
+      - "Put the (deck|steam machine|gaming pc) to sleep"
+    id: suspend
+  - trigger: conversation
+    command:
+      - "(Turn off|Shut down|Shutdown|Power off) the (deck|steam machine|gaming pc)"
+    id: shutdown
+  - trigger: conversation
+    command:
+      - "(Reboot|Restart) the (deck|steam machine|gaming pc)"
+    id: reboot
+  - trigger: conversation
+    command:
+      - "(Set|Change) (the|) (deck|steam machine|gaming pc) volume to {volume}"
+      - "Volume {volume} (on|) (the|) (deck|steam machine|gaming pc)"
+    id: volume
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: wake
+        sequence:
+          - action: boiler_room.wake
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: suspend
+        sequence:
+          - action: boiler_room.power
+            data:
+              action: suspend
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: shutdown
+        sequence:
+          - action: boiler_room.power
+            data:
+              action: shutdown
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: reboot
+        sequence:
+          - action: boiler_room.power
+            data:
+              action: reboot
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: volume
+        sequence:
+          - action: boiler_room.set_volume
+            data:
+              level: "{{ trigger.slots.volume | int(50) }}"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
