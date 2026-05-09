@@ -56,8 +56,10 @@ func VolumeMute(mute bool) error {
 // Suspend suspends the system.
 // Fallback chain:
 //  1. Steam D-Bus (gaming mode — saves game state properly)
-//  2. sudo systemctl suspend (desktop mode — needs sudoers rule from install)
-//  3. systemctl suspend (last resort — may fail without polkit auth)
+//  2. loginctl (desktop mode — talks to logind, no sudo/sudoers needed)
+//  3. logind D-Bus (direct D-Bus call to systemd-logind)
+//  4. sudo systemctl (legacy — only works if sudoers rule exists)
+//  5. systemctl (last resort — may fail without polkit auth)
 func Suspend() error {
 	return powerAction("Suspend", "suspend")
 }
@@ -72,6 +74,20 @@ func Reboot() error {
 	return powerAction("Reboot", "reboot")
 }
 
+// loginctlAction maps systemctl actions to loginctl equivalents.
+var loginctlAction = map[string]string{
+	"suspend":  "suspend",
+	"poweroff": "poweroff",
+	"reboot":   "reboot",
+}
+
+// logindDBusMethod maps systemctl actions to org.freedesktop.login1.Manager methods.
+var logindDBusMethod = map[string]string{
+	"suspend":  "Suspend",
+	"poweroff": "PowerOff",
+	"reboot":   "Reboot",
+}
+
 // powerAction tries multiple methods to execute a power command.
 func powerAction(dbusMethod, systemctlAction string) error {
 	// 1. Try Steam D-Bus (works in gaming mode)
@@ -82,7 +98,27 @@ func powerAction(dbusMethod, systemctlAction string) error {
 		log.Printf("Steam D-Bus %s unavailable: %v", dbusMethod, err)
 	}
 
-	// 2. Try sudo systemctl (works in desktop mode with our sudoers rule)
+	// 2. Try loginctl (works for session users without sudo/sudoers)
+	if action, ok := loginctlAction[systemctlAction]; ok {
+		if err := exec.Command("loginctl", action).Run(); err == nil {
+			log.Printf("Power action '%s' succeeded via loginctl", action)
+			return nil
+		} else {
+			log.Printf("loginctl %s failed: %v", action, err)
+		}
+	}
+
+	// 3. Try logind D-Bus directly (works when loginctl is unavailable)
+	if method, ok := logindDBusMethod[systemctlAction]; ok {
+		if err := logindDBusCall(method); err == nil {
+			log.Printf("Power action '%s' succeeded via logind D-Bus", method)
+			return nil
+		} else {
+			log.Printf("logind D-Bus %s failed: %v", method, err)
+		}
+	}
+
+	// 4. Try sudo systemctl (legacy — only works if sudoers rule exists)
 	if err := exec.Command("sudo", "-n", "systemctl", systemctlAction).Run(); err == nil {
 		log.Printf("Power action '%s' succeeded via sudo systemctl", systemctlAction)
 		return nil
@@ -90,9 +126,24 @@ func powerAction(dbusMethod, systemctlAction string) error {
 		log.Printf("sudo systemctl %s failed: %v", systemctlAction, err)
 	}
 
-	// 3. Last resort: raw systemctl (may prompt for polkit auth and fail)
+	// 5. Last resort: raw systemctl (may prompt for polkit auth and fail)
 	log.Printf("Trying raw systemctl %s as last resort", systemctlAction)
 	return exec.Command("systemctl", systemctlAction).Run()
+}
+
+// logindDBusCall invokes a power method on org.freedesktop.login1.Manager
+// via the system bus. This works for session users without sudo or sudoers
+// and survives SteamOS updates that wipe /etc/sudoers.d/.
+func logindDBusCall(method string) error {
+	return exec.Command(
+		"dbus-send",
+		"--system",
+		"--print-reply",
+		"--dest=org.freedesktop.login1",
+		"/org/freedesktop/login1",
+		fmt.Sprintf("org.freedesktop.login1.Manager.%s", method),
+		"boolean:true",
+	).Run()
 }
 
 // steamDBusCall invokes a method on Steam's D-Bus Manager interface.
