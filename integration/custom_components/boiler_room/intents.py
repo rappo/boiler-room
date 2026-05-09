@@ -323,71 +323,6 @@ _TYPE_LABELS = {
     "Person": "person",
 }
 
-# Default media aliases — maps common STT mishearings to correct names.
-# Voice-to-text engines often mangle unusual spellings, foreign words, and
-# stylized names. Keys should be lowercase; values are the actual search term.
-DEFAULT_MEDIA_ALIASES: dict[str, str] = {
-    # Artists / Bands
-    "nine inch noise": "Nine Inch Nails",
-    "nine inch noize": "Nine Inch Nails",
-    "nine inch niles": "Nine Inch Nails",
-    "led zeppelin": "Led Zeppelin",
-    "led zepplin": "Led Zeppelin",
-    "ac dc": "AC/DC",
-    "acdc": "AC/DC",
-    "gorillaz": "Gorillaz",
-    "gorillas": "Gorillaz",
-    "deadmau5": "deadmau5",
-    "dead mouse": "deadmau5",
-    "mötley crüe": "Mötley Crüe",
-    "motley crew": "Mötley Crüe",
-    "motley crue": "Mötley Crüe",
-    "bjork": "Björk",
-    "beyonce": "Beyoncé",
-    "sigur ros": "Sigur Rós",
-    "radiohead": "Radiohead",
-    "radio head": "Radiohead",
-    "tool": "Tool",
-    # Movies / Shows
-    "se7en": "Se7en",
-    "seven": "Se7en",
-    "the matrix": "The Matrix",
-    "schindlers list": "Schindler's List",
-    "schindler's list": "Schindler's List",
-}
-
-
-def _resolve_media_query(query: str) -> list[str]:
-    """Resolve a voice query into candidate search terms.
-
-    Returns a list of queries to try in order:
-    1. The alias target (if the query matches an alias)
-    2. The original query (always included as fallback)
-
-    This handles STT engines that mangle unusual spellings.
-    """
-    query_lower = query.lower().strip()
-    candidates = []
-
-    # Check exact alias match
-    if query_lower in DEFAULT_MEDIA_ALIASES:
-        candidates.append(DEFAULT_MEDIA_ALIASES[query_lower])
-
-    # Check if query is a substring of any alias key (partial match)
-    # e.g., "noise" matching "nine inch noise"
-    for alias_key, alias_value in DEFAULT_MEDIA_ALIASES.items():
-        if query_lower != alias_key and (
-            query_lower in alias_key or alias_key in query_lower
-        ):
-            if alias_value not in candidates:
-                candidates.append(alias_value)
-
-    # Always include the original query as fallback
-    if query not in candidates:
-        candidates.append(query)
-
-    return candidates
-
 
 async def _jellyfin_search(
     jf_url: str, jf_key: str, query: str,
@@ -410,32 +345,6 @@ async def _jellyfin_search(
                 return []
             data = await resp.json()
             return data.get("Items", [])
-
-
-async def _jellyfin_search_with_aliases(
-    jf_url: str, jf_key: str, query: str,
-    media_type: str | None = None, limit: int = 5,
-) -> list[dict[str, Any]]:
-    """Search Jellyfin, trying alias-resolved queries first.
-
-    If the voice query matches a known alias (e.g., 'nine inch noise' →
-    'Nine Inch Nails'), searches with the corrected name first. Falls back
-    to the raw query if no alias match or no results.
-    """
-    candidates = _resolve_media_query(query)
-    _LOGGER.debug("Jellyfin search candidates for '%s': %s", query, candidates)
-
-    for candidate in candidates:
-        items = await _jellyfin_search(jf_url, jf_key, candidate, media_type, limit)
-        if items:
-            if candidate != query:
-                _LOGGER.info(
-                    "Alias resolved '%s' → '%s' (%d results)",
-                    query, candidate, len(items),
-                )
-            return items
-
-    return []
 
 
 async def _jellyfin_find_session(jf_url: str, jf_key: str) -> str | None:
@@ -494,7 +403,7 @@ class BoilerRoomJellyfinSearchIntent(intent.IntentHandler):
         jf_app = jf_config["app_id"]
 
         try:
-            items = await _jellyfin_search_with_aliases(jf_url, jf_key, query, media_type)
+            items = await _jellyfin_search(jf_url, jf_key, query, media_type)
             if not items:
                 hint = f" {media_type.lower()}" if media_type else ""
                 response = intent_obj.create_response()
@@ -594,7 +503,7 @@ class BoilerRoomJellyfinBrowseIntent(intent.IntentHandler):
         try:
             # Browse uses broader types (includes Person, MusicArtist)
             search_types = media_type or _BROWSE_TYPE_DEFAULT
-            items = await _jellyfin_search_with_aliases(jf_url, jf_key, query, search_types)
+            items = await _jellyfin_search(jf_url, jf_key, query, search_types)
             if not items:
                 response = intent_obj.create_response()
                 response.async_set_speech(
