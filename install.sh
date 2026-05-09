@@ -8,7 +8,7 @@ INSTALL_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/boiler-room"
 SERVICE_DIR="$HOME/.config/systemd/user"
 BINARY="boiler-room-agent"
-REPO_BASE="http://192.168.1.101:3210/rappo/boiler-room"
+REPO_BASE="https://github.com/rappo/boiler-room"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

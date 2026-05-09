@@ -20,7 +20,7 @@ type Plugin struct {
 }
 
 // NewPlugin creates a new Jellyfin plugin.
-// serverURL: the base URL of the Jellyfin server (e.g., "http://192.168.1.50:8096")
+// serverURL: the base URL of the Jellyfin server (e.g., "http://<jellyfin-ip>:8096")
 // apiKey: a Jellyfin API key for authentication
 func NewPlugin(serverURL, apiKey string) *Plugin {
 	return &Plugin{

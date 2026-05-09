@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect to Boiler Room Agent",
-        "description": "First, install the agent on your SteamOS device by running this command via SSH or Konsole:\n\ncurl -fsSL http://192.168.1.101:3210/rappo/boiler-room/raw/branch/main/install.sh | bash\n\nOnce the agent is running, enter the device IP below.",
+        "description": "First, install the agent on your SteamOS device by running this command via SSH or Konsole:\n\ncurl -fsSL https://raw.githubusercontent.com/rappo/boiler-room/main/install.sh | bash\n\nOnce the agent is running, enter the device IP below.",
         "data": {
           "host": "SteamOS device IP address",
           "port": "Port"
@@ -39,7 +39,7 @@
           "app_aliases": "App aliases"
         },
         "data_description": {
-          "jellyfin_url": "e.g. http://192.168.1.50:8096",
+          "jellyfin_url": "e.g. http://your-server:8096",
           "jellyfin_api_key": "Generate in Jellyfin Dashboard → API Keys",
           "jellyfin_app_id": "Default: org.jellyfin.JellyfinDesktop. Use your preferred Flatpak client.",
           "youtube_app_id": "Leave empty to use the system browser. e.g. dev.nickvdp.vacuumtube",

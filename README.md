@@ -155,7 +155,7 @@ You should see output like:
 ```
 Boiler Room is running!
 
-  API:      http://192.168.1.54:9451/api/v1/status
+  API:      http://<device-ip>:9451/api/v1/status
   Config:   /home/deck/.config/boiler-room/config.yaml
   Service:  systemctl --user status boiler-room
 ```
@@ -173,7 +173,7 @@ Boiler Room is running!
 ### Step 3: Configure Jellyfin (optional)
 
 1. Go to **Settings > Integrations > Boiler Room > Configure**
-2. Enter your Jellyfin server URL (e.g., `http://192.168.1.50:8096`)
+2. Enter your Jellyfin server URL (e.g., `http://<jellyfin-ip>:8096`)
 3. Enter your Jellyfin API key (generate one in Jellyfin Dashboard > API Keys)
 4. Submit — the connection is validated before saving
 

@@ -16,7 +16,7 @@ INSTALL_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/boiler-room"
 SERVICE_DIR="$HOME/.config/systemd/user"
 BINARY="boiler-room-agent"
-REPO_BASE="http://192.168.1.50:3210/rappo/boiler-room"
+REPO_BASE="https://github.com/rappo/boiler-room"
 
 # Download binary
 mkdir -p "$INSTALL_DIR"

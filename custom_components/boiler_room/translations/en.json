@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect to Boiler Room Agent",
-        "description": "First, install the agent on your SteamOS device by running this command via SSH or Konsole:\n\ncurl -fsSL http://192.168.1.101:3210/rappo/boiler-room/raw/branch/main/install.sh | bash\n\nOnce the agent is running, enter the device IP below.",
+        "description": "First, install the agent on your SteamOS device by running this command via SSH or Konsole:\n\ncurl -fsSL https://raw.githubusercontent.com/rappo/boiler-room/main/install.sh | bash\n\nOnce the agent is running, enter the device IP below.",
         "data": {
           "host": "SteamOS device IP address",
           "port": "Port"
