@@ -8,7 +8,7 @@ INSTALL_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/boiler-room"
 SERVICE_DIR="$HOME/.config/systemd/user"
 BINARY="boiler-room-agent"
-REPO_BASE="http://192.168.1.50:3210/rappo/boiler-room"
+REPO_BASE="http://192.168.1.101:3210/rappo/boiler-room"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -72,15 +72,33 @@ mkdir -p "$SERVICE_DIR"
 
 # Helper script to ensure sudoers rule survives SteamOS updates.
 # /etc/sudoers.d/ can be wiped on major OS updates, but ~/.local/bin/ persists.
+# Uses sudo -n (non-interactive) so it never hangs waiting for a password.
+# Always exits 0 — the agent should start regardless; power control just
+# won't work until the user manually runs the sudoers setup.
 cat > "$INSTALL_DIR/boiler-room-ensure-sudoers" << 'SCRIPT'
 #!/bin/bash
 # Recreates the sudoers rule if missing (e.g., after a SteamOS update).
+# Uses sudo -n to fail fast without prompting — if we don't have
+# passwordless sudo yet, we can't bootstrap it non-interactively.
 SUDOERS_FILE="/etc/sudoers.d/boiler-room"
-if [ ! -f "$SUDOERS_FILE" ]; then
-  USER=$(whoami)
-  echo "$USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl suspend, /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot" | sudo tee "$SUDOERS_FILE" > /dev/null 2>&1
-  sudo chmod 440 "$SUDOERS_FILE" 2>/dev/null
+if [ -f "$SUDOERS_FILE" ]; then
+  exit 0
 fi
+
+USER=$(whoami)
+RULE="$USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl suspend, /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot"
+
+if echo "$RULE" | sudo -n tee "$SUDOERS_FILE" > /dev/null 2>&1 && \
+   sudo -n chmod 440 "$SUDOERS_FILE" 2>/dev/null; then
+  echo "boiler-room: restored sudoers rule after OS update"
+else
+  echo "boiler-room: WARNING — /etc/sudoers.d/boiler-room is missing and cannot be restored automatically." >&2
+  echo "boiler-room: Power control (suspend/shutdown/reboot) will not work until you run:" >&2
+  echo "boiler-room:   echo '$RULE' | sudo tee $SUDOERS_FILE && sudo chmod 440 $SUDOERS_FILE" >&2
+fi
+
+# Always exit 0 — don't block the agent from starting
+exit 0
 SCRIPT
 chmod +x "$INSTALL_DIR/boiler-room-ensure-sudoers"
 
@@ -92,8 +110,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Ensure sudoers rule exists (survives SteamOS updates)
-ExecStartPre=%h/.local/bin/boiler-room-ensure-sudoers
+# Ensure sudoers rule exists (survives SteamOS updates).
+# Prefixed with - so the agent starts even if this fails.
+ExecStartPre=-%h/.local/bin/boiler-room-ensure-sudoers
 ExecStart=%h/.local/bin/boiler-room-agent
 Restart=on-failure
 RestartSec=5
