@@ -180,7 +180,6 @@ class BoilerRoomCreateAutomationsButton(ButtonEntity):
     _attr_has_entity_name = True
     _attr_name = "Create Voice Automations"
     _attr_icon = "mdi:microphone-message"
-    _attr_entity_category = "config"
 
     def __init__(self, device_id: str, device_name: str) -> None:
         """Initialize the button."""
