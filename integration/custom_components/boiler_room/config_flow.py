@@ -164,9 +164,13 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
 
 CONF_JELLYFIN_APP_ID = "jellyfin_app_id"
 CONF_YOUTUBE_APP_ID = "youtube_app_id"
+CONF_CACHE_ARTISTS = "cache_artists"
+CONF_CACHE_ALBUMS = "cache_albums"
+CONF_CACHE_INTERVAL = "cache_interval"
 
 DEFAULT_JELLYFIN_APP = "org.jellyfin.JellyfinDesktop"
 DEFAULT_YOUTUBE_APP = ""
+DEFAULT_CACHE_INTERVAL = 30  # minutes
 
 
 class BoilerRoomOptionsFlow(OptionsFlow):
@@ -222,6 +226,18 @@ class BoilerRoomOptionsFlow(OptionsFlow):
                         CONF_YOUTUBE_APP_ID,
                         default=current.get(CONF_YOUTUBE_APP_ID, DEFAULT_YOUTUBE_APP),
                     ): str,
+                    vol.Optional(
+                        CONF_CACHE_ARTISTS,
+                        default=current.get(CONF_CACHE_ARTISTS, True),
+                    ): bool,
+                    vol.Optional(
+                        CONF_CACHE_ALBUMS,
+                        default=current.get(CONF_CACHE_ALBUMS, True),
+                    ): bool,
+                    vol.Optional(
+                        CONF_CACHE_INTERVAL,
+                        default=current.get(CONF_CACHE_INTERVAL, DEFAULT_CACHE_INTERVAL),
+                    ): vol.All(int, vol.Range(min=5, max=1440)),
                 }
             ),
             errors=errors,

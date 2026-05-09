@@ -164,6 +164,16 @@ def _get_jellyfin_config(
     return None
 
 
+def _get_jellyfin_cache(hass: HomeAssistant):
+    """Get the Jellyfin media cache from the first entry that has one."""
+    domain_data = hass.data.get(DOMAIN, {})
+    for entry_data in domain_data.values():
+        cache = entry_data.get("jellyfin_cache")
+        if cache:
+            return cache
+    return None
+
+
 # ─── Intent Registration ───
 
 
@@ -403,7 +413,20 @@ class BoilerRoomJellyfinSearchIntent(intent.IntentHandler):
         jf_app = jf_config["app_id"]
 
         try:
-            items = await _jellyfin_search(jf_url, jf_key, query, media_type)
+            # Try phonetic match against the local cache first
+            cache = _get_jellyfin_cache(hass)
+            cache_hit_id = None
+            search_query = query
+            if cache:
+                resolved_name, cache_hit_id = cache.match_or_query(query)
+                if resolved_name != query:
+                    _LOGGER.info(
+                        "Cache resolved voice query '%s' → '%s'",
+                        query, resolved_name,
+                    )
+                    search_query = resolved_name
+
+            items = await _jellyfin_search(jf_url, jf_key, search_query, media_type)
             if not items:
                 hint = f" {media_type.lower()}" if media_type else ""
                 response = intent_obj.create_response()
@@ -503,7 +526,20 @@ class BoilerRoomJellyfinBrowseIntent(intent.IntentHandler):
         try:
             # Browse uses broader types (includes Person, MusicArtist)
             search_types = media_type or _BROWSE_TYPE_DEFAULT
-            items = await _jellyfin_search(jf_url, jf_key, query, search_types)
+
+            # Try phonetic match against the local cache first
+            cache = _get_jellyfin_cache(hass)
+            search_query = query
+            if cache:
+                resolved_name, _ = cache.match_or_query(query)
+                if resolved_name != query:
+                    _LOGGER.info(
+                        "Cache resolved voice query '%s' → '%s'",
+                        query, resolved_name,
+                    )
+                    search_query = resolved_name
+
+            items = await _jellyfin_search(jf_url, jf_key, search_query, search_types)
             if not items:
                 response = intent_obj.create_response()
                 response.async_set_speech(
