@@ -42,11 +42,11 @@
           "jellyfin_url": "e.g. http://your-server:8096",
           "jellyfin_api_key": "Generate in Jellyfin Dashboard → API Keys",
           "jellyfin_app_id": "Default: org.jellyfin.JellyfinDesktop. Use your preferred Flatpak client.",
-          "youtube_app_id": "Leave empty to use the system browser. e.g. dev.nickvdp.vacuumtube",
+          "youtube_app_id": "To find the ID, SSH into your SteamOS device and run: flatpak list --columns=name,application | grep -i tube. Leave empty to use the system browser.",
           "cache_artists": "Cache artist names from your Jellyfin library so voice commands can match unusual spellings (e.g. deadmau5, Gorillaz)",
           "cache_albums": "Cache album names for the same phonetic voice matching",
-          "cache_interval": "How often to check for new items (5–1440 minutes)",
-          "app_aliases": "Map friendly names to Flatpak app IDs so voice commands use the name you say. Format: youtube=rocks.shy.VacuumTube, browser=org.mozilla.firefox"
+          "cache_interval": "How often to refresh the cache with new library items, in minutes. Default 30. Range: 5–1440 (24h).",
+          "app_aliases": "Map friendly voice names to Flatpak IDs. One per line or comma-separated. Example: youtube=rocks.shy.VacuumTube, browser=org.mozilla.firefox. Find IDs by running flatpak list on the device."
         }
       }
     },

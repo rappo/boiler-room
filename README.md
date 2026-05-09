@@ -4,7 +4,6 @@
 
 **Boiler Room** bridges [Home Assistant](https://www.home-assistant.io/) and [SteamOS](https://store.steampowered.com/steamos), letting you launch games, play Jellyfin media, switch between desktop and gaming mode, and manage your SteamOS device with voice commands, automations, and dashboard controls.
 
-Named after the engine room where steam is made — inspired by the [Aeolipile](https://en.wikipedia.org/wiki/Aeolipile), the world's first steam-powered device.
 
 ## Architecture
 
