@@ -50,6 +50,7 @@ async def async_setup_entry(
         BoilerRoomPowerButton(api, device_id, device_name, "Shutdown", "shutdown", "mdi:power"),
         BoilerRoomPowerButton(api, device_id, device_name, "Reboot", "reboot", "mdi:restart"),
         BoilerRoomWakeButton(coordinator, entry, device_id, device_name, stored_mac),
+        BoilerRoomCreateAutomationsButton(device_id, device_name),
     ]
 
     async_add_entities(entities)
@@ -167,3 +168,36 @@ class BoilerRoomWakeButton(ButtonEntity):
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             sock.sendto(packet, ("255.255.255.255", 9))
             _LOGGER.info("WoL magic packet sent to %s", mac)
+
+
+class BoilerRoomCreateAutomationsButton(ButtonEntity):
+    """Button that creates the Boiler Room voice automations.
+
+    Writes pre-built automations to automations.yaml so they appear
+    in the HA UI as fully editable, standalone automations.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Create Voice Automations"
+    _attr_icon = "mdi:microphone-message"
+    _attr_entity_category = "config"
+
+    def __init__(self, device_id: str, device_name: str) -> None:
+        """Initialize the button."""
+        self._device_id = device_id
+        self._attr_unique_id = f"{device_id}_create_voice_automations"
+
+    @property
+    def device_info(self):
+        """Return device information."""
+        return {"identifiers": {(DOMAIN, self._device_id)}}
+
+    async def async_press(self) -> None:
+        """Create the voice automations."""
+        from .automations import async_create_voice_automations
+
+        added = await async_create_voice_automations(self.hass)
+        if added > 0:
+            _LOGGER.info("Created %d voice automations", added)
+        else:
+            _LOGGER.info("Voice automations already exist")

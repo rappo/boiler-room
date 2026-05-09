@@ -251,17 +251,300 @@ The agent exposes a REST API at `http://<device-ip>:9451/api/v1/`.
 
 ## Voice Commands
 
-Voice commands work through **HA automations** backed by **Boiler Room services**. Import the blueprints below, create an automation from each one (no configuration needed), and voice commands are immediately active through Assist.
+Voice commands work through **HA automations** backed by **Boiler Room services**. The integration ships 3 pre-built automations you can create with one button press — fully editable in the HA UI.
 
 ### Quick Setup
 
-Import the blueprints — each badge opens the import dialog in your HA instance:
+**Option A: One-click** — Press the **"Create Voice Automations"** button on your Boiler Room device page. This writes 3 automations to your `automations.yaml` and reloads — they appear instantly in Settings → Automations, fully editable.
 
-[![Import System Controls](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Frappo%2Fboiler-room%2Fblob%2Fmain%2Fcustom_components%2Fboiler_room%2Fblueprints%2Fautomation%2Fsystem_controls.yaml)
-[![Import Games & Apps](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Frappo%2Fboiler-room%2Fblob%2Fmain%2Fcustom_components%2Fboiler_room%2Fblueprints%2Fautomation%2Fgames_and_apps.yaml)
-[![Import Jellyfin Media](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Frappo%2Fboiler-room%2Fblob%2Fmain%2Fcustom_components%2Fboiler_room%2Fblueprints%2Fautomation%2Fjellyfin_media.yaml)
+**Option B: Copy-paste** — Create automations manually using the YAML below. Go to Settings → Automations → Create Automation → ⋮ → Edit in YAML, paste, and save.
 
-After importing each blueprint: **Settings → Automations → Blueprints → click the blueprint → Create Automation → Save**. That's it.
+<details>
+<summary><strong>System Controls</strong> — wake, suspend, shutdown, reboot, volume</summary>
+
+```yaml
+alias: "Boiler Room: System Controls"
+description: "Voice commands for SteamOS device power and volume control."
+mode: single
+triggers:
+  - trigger: conversation
+    command:
+      - "(Wake up|Turn on|Power on) the (deck|steam machine|gaming pc)"
+    id: wake
+  - trigger: conversation
+    command:
+      - "(Suspend|Sleep) the (deck|steam machine|gaming pc)"
+      - "Put the (deck|steam machine|gaming pc) to sleep"
+    id: suspend
+  - trigger: conversation
+    command:
+      - "(Turn off|Shut down|Shutdown|Power off) the (deck|steam machine|gaming pc)"
+    id: shutdown
+  - trigger: conversation
+    command:
+      - "(Reboot|Restart) the (deck|steam machine|gaming pc)"
+    id: reboot
+  - trigger: conversation
+    command:
+      - "(Set|Change) (the|) (deck|steam machine|gaming pc) volume to {volume}"
+      - "Volume {volume} (on|) (the|) (deck|steam machine|gaming pc)"
+    id: volume
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: wake
+        sequence:
+          - action: boiler_room.wake
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: suspend
+        sequence:
+          - action: boiler_room.power
+            data:
+              action: suspend
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: shutdown
+        sequence:
+          - action: boiler_room.power
+            data:
+              action: shutdown
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: reboot
+        sequence:
+          - action: boiler_room.power
+            data:
+              action: reboot
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: volume
+        sequence:
+          - action: boiler_room.set_volume
+            data:
+              level: "{{ trigger.slots.volume | int(50) }}"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+```
+
+</details>
+
+<details>
+<summary><strong>Games & Apps</strong> — launch games and Flatpak apps by voice</summary>
+
+```yaml
+alias: "Boiler Room: Games & Apps"
+description: "Voice commands for launching Steam games and apps on your SteamOS device."
+mode: single
+triggers:
+  - trigger: conversation
+    command:
+      - "(Launch|Play|Start|Open|Run|Boot up|Fire up) {game_name}"
+      - "Put on {game_name}"
+      - "(Launch|Play|Start|Open|Run) {game_name} on the (deck|steam machine|tv|living room|gaming pc)"
+    id: launch_game
+  - trigger: conversation
+    command:
+      - "Open {app_name} on the (deck|steam machine|tv|living room|gaming pc)"
+      - "(Launch|Start) the {app_name} app"
+    id: launch_app
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: launch_game
+        sequence:
+          - action: boiler_room.launch_game
+            data:
+              name: "{{ trigger.slots.game_name }}"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: launch_app
+        sequence:
+          - action: boiler_room.launch_app
+            data:
+              name: "{{ trigger.slots.app_name }}"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+```
+
+</details>
+
+<details>
+<summary><strong>Jellyfin Media</strong> — play, browse, control playback, YouTube</summary>
+
+```yaml
+alias: "Boiler Room: Jellyfin Media"
+description: "Voice commands for Jellyfin media playback, browsing, and YouTube."
+mode: single
+triggers:
+  - trigger: conversation
+    command:
+      - "(Play|Watch|Listen to|Put on) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+    id: jellyfin_play
+  - trigger: conversation
+    command:
+      - "(Play|Watch|Put on) the movie {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+    id: jellyfin_play_movie
+  - trigger: conversation
+    command:
+      - "(Play|Watch|Put on) the (show|series|tv show) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+    id: jellyfin_play_series
+  - trigger: conversation
+    command:
+      - "(Play|Listen to|Put on) the album {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+    id: jellyfin_play_album
+  - trigger: conversation
+    command:
+      - "(Play|Listen to|Put on) the song {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+    id: jellyfin_play_song
+  - trigger: conversation
+    command:
+      - "(Show me|Browse|Look up) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+      - "(Show|Browse|Find|Look up|Go to) the movie {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+      - "(Show|Browse|Find|Look up|Go to) the (show|series|tv show) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+      - "(Show|Browse|Find|Look up|Go to) the (album|artist|band) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
+    id: jellyfin_browse
+  - trigger: conversation
+    command:
+      - "(Pause|Resume|Unpause) (Jellyfin|Jelly Fin|Jellyfish|jelly fin|the stream|playback)"
+    id: jellyfin_pause
+  - trigger: conversation
+    command:
+      - "(Stop) (Jellyfin|Jelly Fin|Jellyfish|jelly fin|the stream|playback)"
+    id: jellyfin_stop
+  - trigger: conversation
+    command:
+      - "(Rewind|Go back|Skip back) (Jellyfin|Jelly Fin|Jellyfish|jelly fin|the stream|playback)"
+    id: jellyfin_rewind
+  - trigger: conversation
+    command:
+      - "(Fast forward|Skip forward|Skip ahead) (Jellyfin|Jelly Fin|Jellyfish|jelly fin|the stream|playback)"
+    id: jellyfin_ff
+  - trigger: conversation
+    command:
+      - "Search YouTube for {query}"
+      - "(Open|Play|Watch) {query} on YouTube"
+    id: youtube
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: jellyfin_play
+        sequence:
+          - action: boiler_room.jellyfin_play
+            data:
+              query: "{{ trigger.slots.query }}"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_play_movie
+        sequence:
+          - action: boiler_room.jellyfin_play
+            data:
+              query: "{{ trigger.slots.query }}"
+              type: Movie
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_play_series
+        sequence:
+          - action: boiler_room.jellyfin_play
+            data:
+              query: "{{ trigger.slots.query }}"
+              type: Series
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_play_album
+        sequence:
+          - action: boiler_room.jellyfin_play
+            data:
+              query: "{{ trigger.slots.query }}"
+              type: MusicAlbum
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_play_song
+        sequence:
+          - action: boiler_room.jellyfin_play
+            data:
+              query: "{{ trigger.slots.query }}"
+              type: Audio
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_browse
+        sequence:
+          - action: boiler_room.jellyfin_browse
+            data:
+              query: "{{ trigger.slots.query }}"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_pause
+        sequence:
+          - action: boiler_room.jellyfin_control
+            data:
+              action: pause
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_stop
+        sequence:
+          - action: boiler_room.jellyfin_control
+            data:
+              action: stop
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_rewind
+        sequence:
+          - action: boiler_room.jellyfin_control
+            data:
+              action: rewind
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: jellyfin_ff
+        sequence:
+          - action: boiler_room.jellyfin_control
+            data:
+              action: fastforward
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+      - conditions:
+          - condition: trigger
+            id: youtube
+        sequence:
+          - action: boiler_room.youtube_search
+            data:
+              query: "{{ trigger.slots.query }}"
+            response_variable: result
+          - set_conversation_response: "{{ result.speech }}"
+```
+
+</details>
 
 ### Available Voice Commands
 
