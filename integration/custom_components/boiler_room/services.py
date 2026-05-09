@@ -21,21 +21,232 @@ import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 
 from .const import DOMAIN
-from .intents import (
-    DEFAULT_ALIASES,
-    _BROWSE_TYPE_DEFAULT,
-    _MEDIA_TYPE_DEFAULT,
-    _TYPE_LABELS,
-    _fuzzy_match_app,
-    _get_device_context,
-    _get_jellyfin_cache,
-    _get_jellyfin_config,
-    _jellyfin_find_session,
-    _jellyfin_search,
-    fuzzy_match_game,
-)
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# ─── Game Aliases ───
+
+# Default game aliases — common abbreviations that voice assistants might hear
+DEFAULT_ALIASES: dict[str, str] = {
+    "bg3": "Baldur's Gate 3",
+    "baldurs gate": "Baldur's Gate 3",
+    "cyberpunk": "Cyberpunk 2077",
+    "rdr2": "Red Dead Redemption 2",
+    "red dead": "Red Dead Redemption 2",
+    "gta": "Grand Theft Auto V",
+    "gta5": "Grand Theft Auto V",
+    "elden ring": "ELDEN RING",
+    "skyrim": "The Elder Scrolls V: Skyrim",
+    "witcher": "The Witcher 3: Wild Hunt",
+    "botw": "The Legend of Zelda: Breath of the Wild",
+    "totk": "The Legend of Zelda: Tears of the Kingdom",
+    "ff7": "FINAL FANTASY VII REMAKE",
+    "ds3": "DARK SOULS III",
+    "hollow knight": "Hollow Knight",
+    "stardew": "Stardew Valley",
+    "terraria": "Terraria",
+    "valheim": "Valheim",
+    "satisfactory": "Satisfactory",
+    "factorio": "Factorio",
+    "rimworld": "RimWorld",
+    "civ": "Sid Meier's Civilization VI",
+    "civ6": "Sid Meier's Civilization VI",
+    "portal": "Portal 2",
+    "half life": "Half-Life 2",
+    "dota": "Dota 2",
+    "cs": "Counter-Strike 2",
+    "csgo": "Counter-Strike 2",
+    "apex": "Apex Legends",
+}
+
+
+# ─── Fuzzy Matching ───
+
+
+def fuzzy_match_game(
+    query: str,
+    games: list[dict[str, Any]],
+    aliases: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    """Find the best matching game for a voice query.
+
+    Match priority:
+    1. Exact alias match
+    2. Exact name match (case-insensitive)
+    3. Substring match (prefer shorter names = more specific)
+    4. Word-boundary matching
+    """
+    query_lower = query.lower().strip()
+    if not query_lower:
+        return None
+
+    # Merge default aliases with user-configured aliases
+    all_aliases = {**DEFAULT_ALIASES}
+    if aliases:
+        all_aliases.update(aliases)
+
+    # 1. Check aliases first
+    if query_lower in all_aliases:
+        alias_target = all_aliases[query_lower].lower()
+        for game in games:
+            if game.get("name", "").lower() == alias_target:
+                return game
+
+    # 2. Exact name match
+    for game in games:
+        if game.get("name", "").lower() == query_lower:
+            return game
+
+    # 3. Substring match
+    substring_matches = []
+    for game in games:
+        name = game.get("name", "").lower()
+        if query_lower in name:
+            substring_matches.append(game)
+
+    if len(substring_matches) == 1:
+        return substring_matches[0]
+    if len(substring_matches) > 1:
+        # Return shortest name (most specific)
+        return min(substring_matches, key=lambda g: len(g.get("name", "")))
+
+    # 4. Word-boundary matching — check if all query words appear in the name
+    query_words = query_lower.split()
+    for game in games:
+        name_lower = game.get("name", "").lower()
+        if all(word in name_lower for word in query_words):
+            return game
+
+    return None
+
+
+def _fuzzy_match_app(
+    query: str,
+    apps: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Fuzzy match an app name against installed Flatpak apps."""
+    query_lower = query.lower().strip()
+    if not query_lower:
+        return None
+
+    # Exact match
+    for app in apps:
+        if app.get("name", "").lower() == query_lower:
+            return app
+
+    # Substring match
+    matches = [a for a in apps if query_lower in a.get("name", "").lower()]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        return min(matches, key=lambda a: len(a.get("name", "")))
+
+    return None
+
+
+# ─── Context Helpers ───
+
+
+def _get_device_context(
+    hass: HomeAssistant,
+) -> tuple[Any, list[dict], list[dict], dict[str, str] | None]:
+    """Get the API client, game list, app list, and aliases from the first available device."""
+    domain_data = hass.data.get(DOMAIN, {})
+    for entry_data in domain_data.values():
+        api = entry_data.get("api")
+        coordinator = entry_data.get("coordinator")
+        if api and coordinator and coordinator.data:
+            games = coordinator.data.get("games", [])
+            apps = coordinator.data.get("apps", [])
+            aliases = entry_data.get("aliases")
+            return api, games, apps, aliases
+    return None, [], [], None
+
+
+def _get_jellyfin_config(
+    hass: HomeAssistant,
+) -> dict[str, str] | None:
+    """Get Jellyfin config from the first config entry's options."""
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        jf_url = entry.options.get("jellyfin_url", "").strip()
+        jf_key = entry.options.get("jellyfin_api_key", "").strip()
+        if jf_url and jf_key:
+            return {
+                "url": jf_url.rstrip("/"),
+                "api_key": jf_key,
+                "app_id": entry.options.get("jellyfin_app_id", "org.jellyfin.JellyfinDesktop").strip(),
+                "youtube_app_id": entry.options.get("youtube_app_id", "").strip(),
+            }
+    return None
+
+
+def _get_jellyfin_cache(hass: HomeAssistant):
+    """Get the Jellyfin media cache from the first entry that has one."""
+    domain_data = hass.data.get(DOMAIN, {})
+    for entry_data in domain_data.values():
+        cache = entry_data.get("jellyfin_cache")
+        if cache:
+            return cache
+    return None
+
+
+# ─── Jellyfin Helpers ───
+
+_MEDIA_TYPE_DEFAULT = "Movie,Series,Audio,MusicAlbum,Episode"
+_BROWSE_TYPE_DEFAULT = "Movie,Series,Audio,MusicAlbum,MusicArtist,Person,Episode"
+_TYPE_LABELS = {
+    "Movie": "movie", "Series": "show", "MusicAlbum": "album",
+    "Audio": "song", "Episode": "episode", "MusicArtist": "artist",
+    "Person": "person",
+}
+
+
+async def _jellyfin_search(
+    jf_url: str, jf_key: str, query: str,
+    media_type: str | None = None, limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Search the Jellyfin library."""
+    headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
+    include_types = media_type or _MEDIA_TYPE_DEFAULT
+    search_url = (
+        f"{jf_url}/Items?searchTerm={query}"
+        f"&Limit={limit}&Recursive=true"
+        f"&IncludeItemTypes={include_types}"
+    )
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            search_url, headers=headers,
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            if resp.status != 200:
+                return []
+            data = await resp.json()
+            return data.get("Items", [])
+
+
+async def _jellyfin_find_session(jf_url: str, jf_key: str) -> str | None:
+    """Find a controllable Jellyfin session."""
+    headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"{jf_url}/Sessions", headers=headers,
+            timeout=aiohttp.ClientTimeout(total=5),
+        ) as resp:
+            if resp.status != 200:
+                return None
+            sessions = await resp.json()
+
+    session_id = None
+    for s in sessions:
+        client = (s.get("Client") or "").lower()
+        caps = s.get("Capabilities", {})
+        if caps.get("SupportsMediaControl"):
+            if any(kw in client for kw in ["jellyfin", "media player", "mpv"]):
+                return s.get("Id")
+            if not session_id:
+                session_id = s.get("Id")
+    return session_id
 
 
 # ─── Service Schemas ───

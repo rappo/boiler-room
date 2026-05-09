@@ -46,14 +46,9 @@ async def async_setup_entry(
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register HA services (always available for automations)
+    # Register HA services (callable from automations/blueprints)
     from .services import async_register_services
     async_register_services(hass)
-
-    # Register built-in voice intents (can be disabled via options)
-    if entry.options.get("enable_voice_intents", True):
-        from .intents import async_setup_intents
-        await async_setup_intents(hass)
 
     return True
 
