@@ -249,42 +249,83 @@ The agent exposes a REST API at `http://<device-ip>:9451/api/v1/`.
 | `/ws` | WebSocket | Real-time state events |
 | `/health` | GET | Health check |
 
-## Voice Command Reference
+## Voice Commands
 
-All voice commands are registered as [custom intents](https://www.home-assistant.io/docs/intent_script/) via `custom_sentences/en/boiler_room.yaml`. They work through HA Assist (voice satellites, the app, or the Assist text box).
+Voice commands work through **HA automations** backed by **Boiler Room services**. Import the blueprints below, create an automation from each one (no configuration needed), and voice commands are immediately active through Assist.
 
-> **Note:** Sentence patterns use HA's template syntax: `(A|B)` = either word, `{slot}` = free-form input. Device aliases like `deck`, `steam machine`, `tv`, `living room`, and `gaming pc` are interchangeable.
+### Quick Setup
 
-| Intent | Sentence Pattern | What It Does |
-|---|---|---|
-| **BoilerRoomLaunchGame** | `Launch {game}` | Launches a Steam game or Flatpak app by name. Supports fuzzy matching and aliases (e.g., "bg3" → Baldur's Gate 3). |
-| | `Play/Start/Open/Run/Boot up/Fire up {game}` | |
-| | `Put on {game}` | |
-| | `Launch {game} on the deck/steam machine` | Target a specific device by alias. |
-| **BoilerRoomOpenApp** | `Open {app} on the deck/steam machine` | Opens a Flatpak app, falls back to game matching. |
-| | `Launch/Start the {app} app` | |
-| **BoilerRoomJellyfinSearch** | `Play {query} on Jellyfin` | Searches Jellyfin and plays the top result. Auto-launches the Jellyfin app if needed. |
-| | `Watch/Listen to/Put on {query} on Jellyfin` | |
-| | `Play the movie {query} on Jellyfin` | With type hint — disambiguates when names collide. |
-| | `Play the show/series {query} on Jellyfin` | |
-| | `Play the album {query} on Jellyfin` | |
-| | `Play the song {query} on Jellyfin` | |
-| **BoilerRoomJellyfinBrowse** | `Show me {query} on Jellyfin` | Navigates to the item's page without playing. |
-| | `Browse/Look up {query} on Jellyfin` | |
-| | `Show the movie {query} on Jellyfin` | With type hint. |
-| | `Show the show/series {query} on Jellyfin` | |
-| | `Show the album/artist/band {query} on Jellyfin` | |
-| **BoilerRoomYouTubeSearch** | `Search YouTube for {query}` | Opens a YouTube search or plays a video on the device. |
-| | `Play/Watch {query} on YouTube` | |
-| **BoilerRoomSystemControl** | `Suspend/Sleep the deck/steam machine` | Suspends the device. |
-| | `Put the deck/steam machine to sleep` | |
-| | `Turn off/Shut down/Power off the deck` | Shuts down the device. |
-| | `Reboot/Restart the deck/steam machine` | Reboots the device. |
-| | `Set deck volume to {number}` | Sets volume (0–100). |
+Import the blueprints — each badge opens the import dialog in your HA instance:
 
-### Jellyfin phonetic matching
+[![Import System Controls](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Frappo%2Fboiler-room%2Fblob%2Fmain%2Fcustom_components%2Fboiler_room%2Fblueprints%2Fautomation%2Fsystem_controls.yaml)
+[![Import Games & Apps](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Frappo%2Fboiler-room%2Fblob%2Fmain%2Fcustom_components%2Fboiler_room%2Fblueprints%2Fautomation%2Fgames_and_apps.yaml)
+[![Import Jellyfin Media](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Frappo%2Fboiler-room%2Fblob%2Fmain%2Fcustom_components%2Fboiler_room%2Fblueprints%2Fautomation%2Fjellyfin_media.yaml)
 
-If Jellyfin voice caching is enabled (Settings → Integrations → Boiler Room → Configure), the integration caches your Jellyfin library and matches voice queries phonetically. This handles artists and albums with unusual spellings that STT engines mangle:
+After importing each blueprint: **Settings → Automations → Blueprints → click the blueprint → Create Automation → Save**. That's it.
+
+### Available Voice Commands
+
+#### System Controls
+
+| Sentence | What It Does |
+|---|---|
+| `Wake up the steam machine` | Sends Wake-on-LAN magic packet |
+| `Suspend / Sleep the deck` | Suspends the device |
+| `Put the steam machine to sleep` | Suspends the device |
+| `Turn off / Shut down the deck` | Shuts down the device |
+| `Reboot / Restart the steam machine` | Reboots the device |
+| `Set volume to 50` | Sets volume (0–100) |
+
+#### Games & Apps
+
+| Sentence | What It Does |
+|---|---|
+| `Launch Baldur's Gate 3` | Fuzzy match + launch game |
+| `Play / Start / Open / Run / Boot up {name}` | Aliases work too (e.g., "bg3") |
+| `Launch {name} on the deck` | Target a specific device |
+| `Open YouTube on the deck` | Launch a Flatpak app (checks aliases first) |
+| `Launch the Firefox app` | Launch by app name |
+
+#### Jellyfin Media
+
+| Sentence | What It Does |
+|---|---|
+| `Play {query} on Jellyfin` | Search + play top result |
+| `Play the movie Fargo on Jellyfin` | With type hint to disambiguate |
+| `Play the show / series {query} on Jellyfin` | Series-specific search |
+| `Play the album {query} on Jellyfin` | Album-specific search |
+| `Play the song {query} on Jellyfin` | Song-specific search |
+| `Show me {query} on Jellyfin` | Navigate to item (no playback) |
+| `Pause / Resume Jellyfin` | Toggle playback |
+| `Stop Jellyfin` | Stop playback |
+| `Rewind / Skip back` | Seek backward |
+| `Fast forward / Skip ahead` | Seek forward |
+| `Search YouTube for {query}` | Open YouTube search on device |
+| `Play {query} on YouTube` | Open YouTube with query |
+
+> **Device aliases:** `deck`, `steam machine`, `tv`, `living room`, and `gaming pc` are interchangeable in all commands. Edit the automation to add your own.
+
+### Services
+
+All voice logic is exposed as standard HA services, callable from automations, scripts, or Developer Tools:
+
+| Service | Parameters |
+|---|---|
+| `boiler_room.launch_game` | `name`, optional `device` |
+| `boiler_room.launch_app` | `name`, optional `device` |
+| `boiler_room.jellyfin_play` | `query`, optional `type` |
+| `boiler_room.jellyfin_browse` | `query`, optional `type` |
+| `boiler_room.jellyfin_control` | `action` (pause/unpause/stop/rewind/fastforward) |
+| `boiler_room.youtube_search` | `query`, optional `device` |
+| `boiler_room.power` | `action` (suspend/shutdown/reboot) |
+| `boiler_room.wake` | optional `device` |
+| `boiler_room.set_volume` | `level` (0–100) |
+
+All services return a `speech` response variable for use with `set_conversation_response`.
+
+### Jellyfin Phonetic Matching
+
+If Jellyfin voice caching is enabled (Settings → Integrations → Boiler Room → Configure), the integration caches your library and matches voice queries phonetically. This handles artists and albums with unusual spellings that STT engines mangle:
 
 | You say | STT transcribes | Cache matches |
 |---|---|---|
@@ -295,8 +336,8 @@ If Jellyfin voice caching is enabled (Settings → Integrations → Boiler Room 
 
 ## Troubleshooting
 
-### Voice command returns "Sorry, I am not aware of any area called ..."
-The speech-to-text engine transcribed a word differently than expected. Check the STT output in the pipeline debug view and add the alternate spelling to `custom_sentences/en/boiler_room.yaml`.
+### Voice command not recognized
+Make sure you imported the blueprint **and** created an automation from it. The blueprint alone doesn't do anything — you need to create an automation that uses it.
 
 ### WoL button is disabled
 The WoL button should always be available. If it's disabled, restart HA — this was fixed in v0.5.0 by decoupling the WoL button from the coordinator.
@@ -306,9 +347,6 @@ The Jellyfin app needs to be running on the SteamOS device. The integration will
 
 ### Game not found
 Try saying the full name. Partial matches work but can be ambiguous. Check `journalctl --user -u boiler-room -f` on the SteamOS device to see what the agent received.
-
-### Custom sentences not loading
-The `boiler_room.yaml` file must be at `<HA config>/custom_sentences/en/boiler_room.yaml`, not inside the integration directory. After copying, restart HA.
 
 ## License
 
