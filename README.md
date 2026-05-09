@@ -251,64 +251,47 @@ The agent exposes a REST API at `http://<device-ip>:9451/api/v1/`.
 
 ## Voice Command Reference
 
-All registered voice intents and their sentence patterns:
+All voice commands are registered as [custom intents](https://www.home-assistant.io/docs/intent_script/) via `custom_sentences/en/boiler_room.yaml`. They work through HA Assist (voice satellites, the app, or the Assist text box).
 
-### BoilerRoomLaunchGame
-Launches a Steam game or Flatpak app by name with fuzzy matching.
+> **Note:** Sentence patterns use HA's template syntax: `(A|B)` = either word, `{slot}` = free-form input. Device aliases like `deck`, `steam machine`, `tv`, `living room`, and `gaming pc` are interchangeable.
 
-```
-(Launch|Play|Start|Open|Run|Boot up|Fire up) <game name>
-Put on <game name>
-(Launch|Play|Start|Open|Run) <game name> on the (deck|steam machine|tv|living room|gaming pc)
-```
+| Intent | Sentence Pattern | What It Does |
+|---|---|---|
+| **BoilerRoomLaunchGame** | `Launch {game}` | Launches a Steam game or Flatpak app by name. Supports fuzzy matching and aliases (e.g., "bg3" → Baldur's Gate 3). |
+| | `Play/Start/Open/Run/Boot up/Fire up {game}` | |
+| | `Put on {game}` | |
+| | `Launch {game} on the deck/steam machine` | Target a specific device by alias. |
+| **BoilerRoomOpenApp** | `Open {app} on the deck/steam machine` | Opens a Flatpak app, falls back to game matching. |
+| | `Launch/Start the {app} app` | |
+| **BoilerRoomJellyfinSearch** | `Play {query} on Jellyfin` | Searches Jellyfin and plays the top result. Auto-launches the Jellyfin app if needed. |
+| | `Watch/Listen to/Put on {query} on Jellyfin` | |
+| | `Play the movie {query} on Jellyfin` | With type hint — disambiguates when names collide. |
+| | `Play the show/series {query} on Jellyfin` | |
+| | `Play the album {query} on Jellyfin` | |
+| | `Play the song {query} on Jellyfin` | |
+| **BoilerRoomJellyfinBrowse** | `Show me {query} on Jellyfin` | Navigates to the item's page without playing. |
+| | `Browse/Look up {query} on Jellyfin` | |
+| | `Show the movie {query} on Jellyfin` | With type hint. |
+| | `Show the show/series {query} on Jellyfin` | |
+| | `Show the album/artist/band {query} on Jellyfin` | |
+| **BoilerRoomYouTubeSearch** | `Search YouTube for {query}` | Opens a YouTube search or plays a video on the device. |
+| | `Play/Watch {query} on YouTube` | |
+| **BoilerRoomSystemControl** | `Suspend/Sleep the deck/steam machine` | Suspends the device. |
+| | `Put the deck/steam machine to sleep` | |
+| | `Turn off/Shut down/Power off the deck` | Shuts down the device. |
+| | `Reboot/Restart the deck/steam machine` | Reboots the device. |
+| | `Set deck volume to {number}` | Sets volume (0–100). |
 
-### BoilerRoomOpenApp
-Opens a Flatpak app, with fallback to games.
+### Jellyfin phonetic matching
 
-```
-Open <app name> on the (deck|steam machine|tv|living room|gaming pc)
-(Launch|Start) the <app name> app
-```
+If Jellyfin voice caching is enabled (Settings → Integrations → Boiler Room → Configure), the integration caches your Jellyfin library and matches voice queries phonetically. This handles artists and albums with unusual spellings that STT engines mangle:
 
-### BoilerRoomJellyfinSearch
-Searches Jellyfin and plays the top result. Optional type filter.
-
-```
-(Play|Watch|Listen to|Put on) <query> on Jellyfin
-(Play|Watch|Put on) the movie <query> on Jellyfin
-(Play|Watch|Put on) the (show|series|tv show) <query> on Jellyfin
-(Play|Listen to|Put on) the album <query> on Jellyfin
-(Play|Listen to|Put on) the song <query> on Jellyfin
-```
-
-### BoilerRoomJellyfinBrowse
-Searches Jellyfin and navigates to the item's page without playing.
-
-```
-(Show me|Browse|Look up) <query> on Jellyfin
-(Show|Browse|Find|Look up|Go to) the movie <query> on Jellyfin
-(Show|Browse|Find|Look up|Go to) the (show|series|tv show) <query> on Jellyfin
-(Show|Browse|Find|Look up|Go to) the (album|artist|band) <query> on Jellyfin
-```
-
-### BoilerRoomYouTubeSearch
-Opens a YouTube search or video on the device.
-
-```
-Search YouTube for <query>
-(Open|Play|Watch) <query> on YouTube
-```
-
-### BoilerRoomSystemControl
-Power and volume control.
-
-```
-(Suspend|Sleep) the (deck|steam machine|gaming pc)
-Put the (deck|steam machine|gaming pc) to sleep
-(Turn off|Shut down|Power off) the (deck|steam machine|gaming pc)
-(Reboot|Restart) the (deck|steam machine|gaming pc)
-(Set|Change) (deck|steam machine) volume to <number>
-```
+| You say | STT transcribes | Cache matches |
+|---|---|---|
+| "Play deadmau5" | "dead mouse" | deadmau5 (82%) |
+| "Play Nine Inch Noize" | "nine inch noise" | Nine Inch Noize (93%) |
+| "Play Gorillaz" | "gorillas" | Gorillaz (88%) |
+| "Play Mötley Crüe" | "motley crew" | Mötley Crüe (91%) |
 
 ## Troubleshooting
 
