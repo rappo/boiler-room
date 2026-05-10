@@ -76,6 +76,7 @@ def fuzzy_match_game(
     2. Exact name match (case-insensitive)
     3. Substring match (prefer shorter names = more specific)
     4. Word-boundary matching
+    5. Edit-distance matching (handles STT errors like 'crap' vs 'crab')
     """
     query_lower = query.lower().strip()
     if not query_lower:
@@ -118,7 +119,58 @@ def fuzzy_match_game(
         if all(word in name_lower for word in query_words):
             return game
 
+    # 5. Edit-distance matching — handles STT transcription errors
+    best_match = None
+    best_ratio = 0.0
+    for game in games:
+        name_lower = game.get("name", "").lower()
+        ratio = _similarity_ratio(query_lower, name_lower)
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_match = game
+
+    # Require at least 75% similarity to avoid false positives
+    if best_match and best_ratio >= 0.75:
+        _LOGGER.info(
+            "Edit-distance matched '%s' → '%s' (%.0f%%)",
+            query, best_match.get("name"), best_ratio * 100,
+        )
+        return best_match
+
     return None
+
+
+def _similarity_ratio(a: str, b: str) -> float:
+    """Compute similarity ratio between two strings using Levenshtein distance.
+
+    Returns 1.0 for identical strings, 0.0 for completely different ones.
+    """
+    if a == b:
+        return 1.0
+    len_a, len_b = len(a), len(b)
+    if not len_a or not len_b:
+        return 0.0
+
+    # Quick length check — very different lengths can't be good matches
+    max_len = max(len_a, len_b)
+    if abs(len_a - len_b) / max_len > 0.5:
+        return 0.0
+
+    # Levenshtein distance (simple DP)
+    matrix = list(range(len_b + 1))
+    for i in range(1, len_a + 1):
+        prev = matrix[0]
+        matrix[0] = i
+        for j in range(1, len_b + 1):
+            temp = matrix[j]
+            if a[i - 1] == b[j - 1]:
+                matrix[j] = prev
+            else:
+                matrix[j] = 1 + min(prev, matrix[j], matrix[j - 1])
+            prev = temp
+
+    distance = matrix[len_b]
+    return 1.0 - (distance / max_len)
 
 
 def _fuzzy_match_app(

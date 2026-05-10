@@ -82,35 +82,35 @@ def _system_controls() -> dict[str, Any]:
                     {
                         "conditions": [{"condition": "trigger", "id": "wake"}],
                         "sequence": [
-                            {"action": "boiler_room.wake", "response_variable": "result"},
+                            {"action": "boiler_room.wake", "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "suspend"}],
                         "sequence": [
-                            {"action": "boiler_room.power", "data": {"action": "suspend"}, "response_variable": "result"},
+                            {"action": "boiler_room.power", "data": {"action": "suspend"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "shutdown"}],
                         "sequence": [
-                            {"action": "boiler_room.power", "data": {"action": "shutdown"}, "response_variable": "result"},
+                            {"action": "boiler_room.power", "data": {"action": "shutdown"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "reboot"}],
                         "sequence": [
-                            {"action": "boiler_room.power", "data": {"action": "reboot"}, "response_variable": "result"},
+                            {"action": "boiler_room.power", "data": {"action": "reboot"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "volume"}],
                         "sequence": [
-                            {"action": "boiler_room.set_volume", "data": {"level": "{{ trigger.slots.volume | int(50) }}"}, "response_variable": "result"},
+                            {"action": "boiler_room.set_volume", "data": {"level": "{{ trigger.slots.volume | int(50) }}"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
@@ -151,14 +151,14 @@ def _games_and_apps() -> dict[str, Any]:
                     {
                         "conditions": [{"condition": "trigger", "id": "launch_game"}],
                         "sequence": [
-                            {"action": "boiler_room.launch_game", "data": {"name": "{{ trigger.slots.game_name }}"}, "response_variable": "result"},
+                            {"action": "boiler_room.launch_game", "data": {"name": "{{ trigger.slots.game_name }}"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "launch_app"}],
                         "sequence": [
-                            {"action": "boiler_room.launch_app", "data": {"name": "{{ trigger.slots.app_name }}"}, "response_variable": "result"},
+                            {"action": "boiler_room.launch_app", "data": {"name": "{{ trigger.slots.app_name }}"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
@@ -250,35 +250,35 @@ def _jellyfin_media() -> dict[str, Any]:
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play"}],
                         "sequence": [
-                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}"}, "response_variable": "result"},
+                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play_movie"}],
                         "sequence": [
-                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}", "type": "Movie"}, "response_variable": "result"},
+                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}", "type": "Movie"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play_series"}],
                         "sequence": [
-                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}", "type": "Series"}, "response_variable": "result"},
+                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}", "type": "Series"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play_album"}],
                         "sequence": [
-                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}", "type": "MusicAlbum"}, "response_variable": "result"},
+                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}", "type": "MusicAlbum"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play_song"}],
                         "sequence": [
-                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}", "type": "Audio"}, "response_variable": "result"},
+                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}", "type": "Audio"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
@@ -286,7 +286,7 @@ def _jellyfin_media() -> dict[str, Any]:
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_browse"}],
                         "sequence": [
-                            {"action": "boiler_room.jellyfin_browse", "data": {"query": "{{ trigger.slots.query }}"}, "response_variable": "result"},
+                            {"action": "boiler_room.jellyfin_browse", "data": {"query": "{{ trigger.slots.query }}"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
@@ -294,28 +294,28 @@ def _jellyfin_media() -> dict[str, Any]:
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_pause"}],
                         "sequence": [
-                            {"action": "boiler_room.jellyfin_control", "data": {"action": "pause"}, "response_variable": "result"},
+                            {"action": "boiler_room.jellyfin_control", "data": {"action": "pause"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_stop"}],
                         "sequence": [
-                            {"action": "boiler_room.jellyfin_control", "data": {"action": "stop"}, "response_variable": "result"},
+                            {"action": "boiler_room.jellyfin_control", "data": {"action": "stop"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_rewind"}],
                         "sequence": [
-                            {"action": "boiler_room.jellyfin_control", "data": {"action": "rewind"}, "response_variable": "result"},
+                            {"action": "boiler_room.jellyfin_control", "data": {"action": "rewind"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_ff"}],
                         "sequence": [
-                            {"action": "boiler_room.jellyfin_control", "data": {"action": "fastforward"}, "response_variable": "result"},
+                            {"action": "boiler_room.jellyfin_control", "data": {"action": "fastforward"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
@@ -323,7 +323,7 @@ def _jellyfin_media() -> dict[str, Any]:
                     {
                         "conditions": [{"condition": "trigger", "id": "youtube"}],
                         "sequence": [
-                            {"action": "boiler_room.youtube_search", "data": {"query": "{{ trigger.slots.query }}"}, "response_variable": "result"},
+                            {"action": "boiler_room.youtube_search", "data": {"query": "{{ trigger.slots.query }}"}, "response_variable": "result", "return_response": true},
                             {"set_conversation_response": "{{ result.speech }}"},
                         ],
                     },
