@@ -2,18 +2,16 @@
 
 ## Versioning
 
-The integration version in `custom_components/boiler_room/manifest.json` uses a date-time format:
+The integration version in `custom_components/boiler_room/manifest.json` uses **CalVer** format:
 
 ```
-YYYY-MM-DD_HHMM
+YYYY.M.D
 ```
 
-The timestamp must be in **US Eastern Time** (ET).
-
-**Before every commit**, update the `"version"` field in `manifest.json` to the current Eastern Time timestamp. Example:
+**Before every commit**, update the `"version"` field in `manifest.json` to today's date. Example:
 
 ```json
-"version": "2026-05-09_1927"
+"version": "2026.5.9"
 ```
 
-Do not use semantic versioning (e.g. `1.0.0`). Always use this date-time format.
+Do not use semantic versioning (e.g. `1.0.0`). Always use CalVer. If multiple releases happen on the same day, append a patch number: `2026.5.9.1`, `2026.5.9.2`, etc.
