@@ -296,7 +296,6 @@ actions:
         sequence:
           - action: boiler_room.wake
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -306,7 +305,6 @@ actions:
             data:
               action: suspend
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -316,7 +314,6 @@ actions:
             data:
               action: shutdown
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -326,7 +323,6 @@ actions:
             data:
               action: reboot
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -336,7 +332,6 @@ actions:
             data:
               level: "{{ trigger.slots.volume | int(50) }}"
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
 ```
 
@@ -371,7 +366,6 @@ actions:
             data:
               name: "{{ trigger.slots.game_name }}"
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -381,7 +375,6 @@ actions:
             data:
               name: "{{ trigger.slots.app_name }}"
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
 ```
 
@@ -453,7 +446,6 @@ actions:
             data:
               query: "{{ trigger.slots.query }}"
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -464,7 +456,6 @@ actions:
               query: "{{ trigger.slots.query }}"
               type: Movie
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -475,7 +466,6 @@ actions:
               query: "{{ trigger.slots.query }}"
               type: Series
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -486,7 +476,6 @@ actions:
               query: "{{ trigger.slots.query }}"
               type: MusicAlbum
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -497,7 +486,6 @@ actions:
               query: "{{ trigger.slots.query }}"
               type: Audio
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -507,7 +495,6 @@ actions:
             data:
               query: "{{ trigger.slots.query }}"
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -517,7 +504,6 @@ actions:
             data:
               action: pause
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -527,7 +513,6 @@ actions:
             data:
               action: stop
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -537,7 +522,6 @@ actions:
             data:
               action: rewind
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -547,7 +531,6 @@ actions:
             data:
               action: fastforward
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
       - conditions:
           - condition: trigger
@@ -557,7 +540,6 @@ actions:
             data:
               query: "{{ trigger.slots.query }}"
             response_variable: result
-            return_response: true
           - set_conversation_response: "{{ result.speech }}"
 ```
 
