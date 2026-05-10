@@ -1,0 +1,174 @@
+launch_game:
+  name: Launch Game
+  description: Launch a Steam game by name with fuzzy matching.
+  fields:
+    name:
+      name: Game Name
+      description: The name of the game to launch (supports fuzzy matching and aliases).
+      required: true
+      example: "Cyberpunk 2077"
+      selector:
+        text:
+    device:
+      name: Device
+      description: Target device (optional, uses first available).
+      required: false
+      selector:
+        text:
+
+launch_app:
+  name: Launch App
+  description: Launch a Flatpak app by name with alias support.
+  fields:
+    name:
+      name: App Name
+      description: The name or alias of the app to launch.
+      required: true
+      example: "YouTube"
+      selector:
+        text:
+    device:
+      name: Device
+      description: Target device (optional, uses first available).
+      required: false
+      selector:
+        text:
+
+jellyfin_play:
+  name: Jellyfin Play
+  description: Search Jellyfin and play the top result.
+  fields:
+    query:
+      name: Search Query
+      description: What to search for in your Jellyfin library.
+      required: true
+      example: "The Dark Knight"
+      selector:
+        text:
+    type:
+      name: Media Type
+      description: Filter by media type (Movie, Series, Audio, MusicAlbum, Episode).
+      required: false
+      example: "Movie"
+      selector:
+        select:
+          options:
+            - "Movie"
+            - "Series"
+            - "Audio"
+            - "MusicAlbum"
+            - "Episode"
+
+jellyfin_browse:
+  name: Jellyfin Browse
+  description: Search Jellyfin and navigate to the item's page.
+  fields:
+    query:
+      name: Search Query
+      description: What to search for in your Jellyfin library.
+      required: true
+      example: "Inception"
+      selector:
+        text:
+    type:
+      name: Media Type
+      description: Filter by media type.
+      required: false
+      selector:
+        select:
+          options:
+            - "Movie"
+            - "Series"
+            - "Audio"
+            - "MusicAlbum"
+            - "MusicArtist"
+            - "Person"
+            - "Episode"
+
+jellyfin_control:
+  name: Jellyfin Control
+  description: Control Jellyfin playback (pause, resume, stop, rewind, fast-forward).
+  fields:
+    action:
+      name: Action
+      description: The playback control action.
+      required: true
+      selector:
+        select:
+          options:
+            - "pause"
+            - "unpause"
+            - "stop"
+            - "rewind"
+            - "fastforward"
+
+youtube_search:
+  name: YouTube Search
+  description: Open a YouTube search in the configured client app.
+  fields:
+    query:
+      name: Search Query
+      description: What to search for on YouTube.
+      required: true
+      example: "synthwave music"
+      selector:
+        text:
+    device:
+      name: Device
+      description: Target device (optional).
+      required: false
+      selector:
+        text:
+
+power:
+  name: Power Control
+  description: Execute a power action on the SteamOS device.
+  fields:
+    action:
+      name: Action
+      description: The power action to perform.
+      required: true
+      selector:
+        select:
+          options:
+            - "suspend"
+            - "shutdown"
+            - "reboot"
+    device:
+      name: Device
+      description: Target device (optional).
+      required: false
+      selector:
+        text:
+
+wake:
+  name: Wake (WoL)
+  description: Send a Wake-on-LAN magic packet to the SteamOS device.
+  fields:
+    device:
+      name: Device
+      description: Target device (optional).
+      required: false
+      selector:
+        text:
+
+set_volume:
+  name: Set Volume
+  description: Set the system volume on the SteamOS device.
+  fields:
+    level:
+      name: Volume Level
+      description: Volume level (0–100).
+      required: true
+      example: 50
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+    device:
+      name: Device
+      description: Target device (optional).
+      required: false
+      selector:
+        text:
