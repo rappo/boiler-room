@@ -21,14 +21,30 @@ type BoilerRoomConfigEntry = ConfigEntry
 async def async_setup_entry(
     hass: HomeAssistant, entry: BoilerRoomConfigEntry
 ) -> bool:
-    """Set up Boiler Room from a config entry."""
+    """Set up Boiler Room from a config entry.
+
+    The setup succeeds even when the device is offline — WoL and
+    Create Voice Automations buttons must always be available.
+    The coordinator polls in the background and entities that need
+    live data will show as unavailable until the device comes online.
+    """
     host = entry.data[CONF_HOST]
     port = entry.data[CONF_PORT]
 
     api = BoilerRoomAPI(host, port)
 
     coordinator = BoilerRoomCoordinator(hass, api)
-    await coordinator.async_config_entry_first_refresh()
+
+    # Try to fetch initial data, but don't fail setup if device is offline.
+    # This is critical: WoL needs to work when the device is suspended/off.
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except Exception:
+        _LOGGER.warning(
+            "Could not reach %s:%s on startup — will keep retrying. "
+            "WoL and Create Voice Automations are still available.",
+            host, port,
+        )
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
