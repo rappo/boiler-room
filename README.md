@@ -285,8 +285,8 @@ triggers:
     id: reboot
   - trigger: conversation
     command:
-      - "(Set|Change) (the|) (deck|steam machine|gaming pc) volume to {volume}"
-      - "Volume {volume} (on|) (the|) (deck|steam machine|gaming pc)"
+      - "(Set|Change) [the] (deck|steam machine|gaming pc) volume to {volume}"
+      - "Volume {volume} [on] [the] (deck|steam machine|gaming pc)"
     id: volume
 actions:
   - choose:

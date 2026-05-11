@@ -70,8 +70,8 @@ def _system_controls() -> dict[str, Any]:
             {
                 "trigger": "conversation",
                 "command": [
-                    "(Set|Change) (the|) (deck|steam machine|gaming pc) volume to {volume}",
-                    "Volume {volume} (on|) (the|) (deck|steam machine|gaming pc)",
+                    "(Set|Change) [the] (deck|steam machine|gaming pc) volume to {volume}",
+                    "Volume {volume} [on] [the] (deck|steam machine|gaming pc)",
                 ],
                 "id": "volume",
             },
