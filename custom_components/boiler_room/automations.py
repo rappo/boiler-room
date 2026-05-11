@@ -82,31 +82,36 @@ def _system_controls() -> dict[str, Any]:
                     {
                         "conditions": [{"condition": "trigger", "id": "wake"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.wake", "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Sending wake-up signal.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "suspend"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.power", "data": {"action": "suspend"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Suspending.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "shutdown"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.power", "data": {"action": "shutdown"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Shutting down.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "reboot"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.power", "data": {"action": "reboot"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Rebooting.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "volume"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.set_volume", "data": {"level": "{{ trigger.slots.volume | int(50) }}"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Volume set.') }}"},
                         ],
                     },
                 ]
@@ -146,13 +151,15 @@ def _games_and_apps() -> dict[str, Any]:
                     {
                         "conditions": [{"condition": "trigger", "id": "launch_game"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.launch_game", "data": {"name": "{{ trigger.slots.game_name }}"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Launching.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "launch_app"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.launch_app", "data": {"name": "{{ trigger.slots.app_name }}"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Opening.') }}"},
                         ],
                     },
                 ]
@@ -243,70 +250,81 @@ def _jellyfin_media() -> dict[str, Any]:
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Playing.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play_movie"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}", "type": "Movie"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Playing movie.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play_series"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}", "type": "Series"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Playing show.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play_album"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}", "type": "MusicAlbum"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Playing album.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play_song"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.jellyfin_play", "data": {"query": "{{ trigger.slots.query }}", "type": "Audio"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Playing song.') }}"},
                         ],
                     },
                     # ─── Jellyfin Browse ───
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_browse"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.jellyfin_browse", "data": {"query": "{{ trigger.slots.query }}"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Browsing.') }}"},
                         ],
                     },
                     # ─── Jellyfin Playback Control ───
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_pause"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.jellyfin_control", "data": {"action": "pause"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Toggling pause.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_stop"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.jellyfin_control", "data": {"action": "stop"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Stopping.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_rewind"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.jellyfin_control", "data": {"action": "rewind"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Rewinding.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_ff"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.jellyfin_control", "data": {"action": "fastforward"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Fast-forwarding.') }}"},
                         ],
                     },
                     # ─── YouTube ───
                     {
                         "conditions": [{"condition": "trigger", "id": "youtube"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
+                            {"action": "boiler_room.youtube_search", "data": {"query": "{{ trigger.slots.query }}"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Searching YouTube.') }}"},
                         ],
                     },
                 ]
