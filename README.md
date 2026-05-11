@@ -296,7 +296,7 @@ actions:
         sequence:
           - action: boiler_room.wake
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: suspend
@@ -305,7 +305,7 @@ actions:
             data:
               action: suspend
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: shutdown
@@ -314,7 +314,7 @@ actions:
             data:
               action: shutdown
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: reboot
@@ -323,7 +323,7 @@ actions:
             data:
               action: reboot
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: volume
@@ -332,7 +332,7 @@ actions:
             data:
               level: "{{ trigger.slots.volume | int(50) }}"
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
 ```
 
 </details>
@@ -366,7 +366,7 @@ actions:
             data:
               name: "{{ trigger.slots.game_name }}"
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: launch_app
@@ -375,7 +375,7 @@ actions:
             data:
               name: "{{ trigger.slots.app_name }}"
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
 ```
 
 </details>
@@ -446,7 +446,7 @@ actions:
             data:
               query: "{{ trigger.slots.query }}"
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: jellyfin_play_movie
@@ -456,7 +456,7 @@ actions:
               query: "{{ trigger.slots.query }}"
               type: Movie
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: jellyfin_play_series
@@ -466,7 +466,7 @@ actions:
               query: "{{ trigger.slots.query }}"
               type: Series
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: jellyfin_play_album
@@ -476,7 +476,7 @@ actions:
               query: "{{ trigger.slots.query }}"
               type: MusicAlbum
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: jellyfin_play_song
@@ -486,7 +486,7 @@ actions:
               query: "{{ trigger.slots.query }}"
               type: Audio
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: jellyfin_browse
@@ -495,7 +495,7 @@ actions:
             data:
               query: "{{ trigger.slots.query }}"
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: jellyfin_pause
@@ -504,7 +504,7 @@ actions:
             data:
               action: pause
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: jellyfin_stop
@@ -513,7 +513,7 @@ actions:
             data:
               action: stop
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: jellyfin_rewind
@@ -522,7 +522,7 @@ actions:
             data:
               action: rewind
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: jellyfin_ff
@@ -531,7 +531,7 @@ actions:
             data:
               action: fastforward
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
       - conditions:
           - condition: trigger
             id: youtube
@@ -540,7 +540,7 @@ actions:
             data:
               query: "{{ trigger.slots.query }}"
             response_variable: result
-          - set_conversation_response: "{{ result.speech }}"
+          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
 ```
 
 </details>

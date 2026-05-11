@@ -82,31 +82,31 @@ def _system_controls() -> dict[str, Any]:
                     {
                         "conditions": [{"condition": "trigger", "id": "wake"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "suspend"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "shutdown"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "reboot"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "volume"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                 ]
@@ -146,13 +146,13 @@ def _games_and_apps() -> dict[str, Any]:
                     {
                         "conditions": [{"condition": "trigger", "id": "launch_game"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "launch_app"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                 ]
@@ -243,70 +243,70 @@ def _jellyfin_media() -> dict[str, Any]:
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play_movie"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play_series"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play_album"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_play_song"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     # ─── Jellyfin Browse ───
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_browse"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     # ─── Jellyfin Playback Control ───
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_pause"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_stop"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_rewind"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     {
                         "conditions": [{"condition": "trigger", "id": "jellyfin_ff"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                     # ─── YouTube ───
                     {
                         "conditions": [{"condition": "trigger", "id": "youtube"}],
                         "sequence": [
-                            {"set_conversation_response": "{{ result.speech }}"},
+                            {"set_conversation_response": "{{ result.speech | default('Command sent.') }}"},
                         ],
                     },
                 ]
