@@ -206,11 +206,29 @@ def _jellyfin_media() -> dict[str, Any]:
                 "trigger": "conversation",
                 "command": [
                     "(Show me|Browse|Look up) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)",
-                    "(Show|Browse|Find|Look up|Go to) the movie {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)",
-                    "(Show|Browse|Find|Look up|Go to) the (show|series|tv show) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)",
-                    "(Show|Browse|Find|Look up|Go to) the (album|artist|band) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)",
                 ],
                 "id": "jellyfin_browse",
+            },
+            {
+                "trigger": "conversation",
+                "command": [
+                    "(Show|Browse|Find|Look up|Go to) the movie {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)",
+                ],
+                "id": "jellyfin_browse_movie",
+            },
+            {
+                "trigger": "conversation",
+                "command": [
+                    "(Show|Browse|Find|Look up|Go to) the (show|series|tv show) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)",
+                ],
+                "id": "jellyfin_browse_series",
+            },
+            {
+                "trigger": "conversation",
+                "command": [
+                    "(Show|Browse|Find|Look up|Go to) the (album|artist|band) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)",
+                ],
+                "id": "jellyfin_browse_music",
             },
             # ─── Jellyfin Playback Control ───
             {
@@ -288,6 +306,27 @@ def _jellyfin_media() -> dict[str, Any]:
                         "sequence": [
                             {"action": "boiler_room.jellyfin_browse", "data": {"query": "{{ trigger.slots.query }}"}, "response_variable": "result"},
                             {"set_conversation_response": "{{ result.speech | default('Browsing.') }}"},
+                        ],
+                    },
+                    {
+                        "conditions": [{"condition": "trigger", "id": "jellyfin_browse_movie"}],
+                        "sequence": [
+                            {"action": "boiler_room.jellyfin_browse", "data": {"query": "{{ trigger.slots.query }}", "type": "Movie"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Browsing movie.') }}"},
+                        ],
+                    },
+                    {
+                        "conditions": [{"condition": "trigger", "id": "jellyfin_browse_series"}],
+                        "sequence": [
+                            {"action": "boiler_room.jellyfin_browse", "data": {"query": "{{ trigger.slots.query }}", "type": "Series"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Browsing show.') }}"},
+                        ],
+                    },
+                    {
+                        "conditions": [{"condition": "trigger", "id": "jellyfin_browse_music"}],
+                        "sequence": [
+                            {"action": "boiler_room.jellyfin_browse", "data": {"query": "{{ trigger.slots.query }}", "type": "MusicAlbum,MusicArtist"}, "response_variable": "result"},
+                            {"set_conversation_response": "{{ result.speech | default('Browsing music.') }}"},
                         ],
                     },
                     # ─── Jellyfin Playback Control ───
