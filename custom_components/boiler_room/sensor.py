@@ -34,6 +34,7 @@ async def async_setup_entry(
     device_name = entry.data.get(CONF_DEVICE_NAME, "SteamOS Device")
 
     entities = [
+        BoilerRoomPowerStateSensor(coordinator, device_id, device_name),
         BoilerRoomCurrentGameSensor(coordinator, device_id, device_name),
         BoilerRoomGameCountSensor(coordinator, device_id, device_name),
         BoilerRoomGameListSensor(coordinator, device_id, device_name),
@@ -338,3 +339,39 @@ class BoilerRoomHomeSizeSensor(BoilerRoomSensorBase):
         """Return home directory size in GB."""
         val = self._sensors.get("home_size_gb", 0)
         return val if val > 0 else None
+
+
+class BoilerRoomPowerStateSensor(BoilerRoomSensorBase):
+    """Sensor showing the device power lifecycle state.
+
+    States:
+      - "on"       — machine is running normally
+      - "sleep"    — going to sleep / suspended
+      - "shutdown" — powering off
+      - "reboot"   — rebooting (machine coming right back)
+    """
+
+    _attr_name = "Power State"
+    _attr_icon = "mdi:power"
+
+    def __init__(self, coordinator, device_id: str, device_name: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, device_id, device_name)
+        self._attr_unique_id = f"{device_id}_power_state"
+
+    @property
+    def native_value(self) -> str:
+        """Return the power state: on, sleep, shutdown, reboot."""
+        if self._status:
+            return self._status.get("power_state", "on")
+        return "on"
+
+    @property
+    def available(self) -> bool:
+        """Mark as available even when coordinator fails.
+
+        When the device is unreachable (hard reset, network loss),
+        the state stays at its last known value rather than going
+        to 'unavailable'. This prevents false automation triggers.
+        """
+        return True

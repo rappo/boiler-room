@@ -17,7 +17,7 @@ import (
 	"github.com/rappo/boiler-room/agent/internal/updater"
 )
 
-var version = "0.3.0"
+var version = "0.4.0"
 
 func main() {
 	showVersion := flag.Bool("version", false, "Print version and exit")
@@ -87,6 +87,12 @@ func main() {
 	upd := updater.NewUpdater(cfg.RepoURL, version)
 	upd.StartPeriodicCheck()
 
+	// Initialize power state tracker with DBus listener
+	powerState := system.NewPowerState(nil) // callback set after server creation
+	if err := powerState.StartDBusListener(); err != nil {
+		log.Printf("Warning: DBus power state listener failed: %v (power state detection disabled)", err)
+	}
+
 	// Start mDNS advertisement
 	stopMDNS, err := discovery.Advertise(cfg.DeviceName, cfg.APIPort, sysInfo.DeviceID, version)
 	if err != nil {
@@ -96,6 +102,6 @@ func main() {
 	}
 
 	// Start HTTP API server (blocks)
-	server := api.NewServer(scanner, sysInfo, pluginMgr, upd, cfg.APIPort, cfg.DeviceName, version)
+	server := api.NewServer(scanner, sysInfo, pluginMgr, upd, powerState, cfg.APIPort, cfg.DeviceName, version)
 	log.Fatal(server.Start())
 }

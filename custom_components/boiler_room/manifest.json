@@ -1,7 +1,7 @@
 {
   "domain": "boiler_room",
   "name": "Boiler Room",
-  "version": "2026.5.11",
+  "version": "2026.5.17",
   "documentation": "https://github.com/rappo/boiler-room",
   "issue_tracker": "https://github.com/rappo/boiler-room/issues",
   "dependencies": [],

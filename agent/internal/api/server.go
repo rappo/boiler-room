@@ -36,6 +36,7 @@ type Server struct {
 	pluginManager *plugins.Manager
 	wsHub         *WSHub
 	updater       *updater.Updater
+	powerState    *system.PowerState
 	port          int
 	deviceName    string
 	version       string
@@ -45,13 +46,14 @@ type Server struct {
 }
 
 // NewServer creates a new API server.
-func NewServer(scanner *games.Scanner, sysInfo *system.Info, pluginMgr *plugins.Manager, upd *updater.Updater, port int, deviceName, version string) *Server {
+func NewServer(scanner *games.Scanner, sysInfo *system.Info, pluginMgr *plugins.Manager, upd *updater.Updater, ps *system.PowerState, port int, deviceName, version string) *Server {
 	s := &Server{
 		scanner:       scanner,
 		sysInfo:       sysInfo,
 		pluginManager: pluginMgr,
 		wsHub:         NewWSHub(),
 		updater:       upd,
+		powerState:    ps,
 		port:          port,
 		deviceName:    deviceName,
 		version:       version,
@@ -83,6 +85,16 @@ func NewServer(scanner *games.Scanner, sysInfo *system.Info, pluginMgr *plugins.
 
 // Start begins serving HTTP requests. Blocks until the server is stopped.
 func (s *Server) Start() error {
+	// Wire up power state WebSocket broadcast now that the hub is ready
+	if s.powerState != nil {
+		s.powerState.SetOnChange(func(state string) {
+			s.wsHub.Broadcast(StateEvent{
+				Type: "power_state_changed",
+				Data: map[string]string{"power_state": state},
+			})
+		})
+	}
+
 	mux := http.NewServeMux()
 
 	// Phase 1: Core
@@ -142,6 +154,7 @@ func (s *Server) Start() error {
 type statusResponse struct {
 	Version        string `json:"version"`
 	State          string `json:"state"`
+	PowerState     string `json:"power_state"`
 	CurrentApp     string `json:"current_app,omitempty"`
 	CurrentAppType string `json:"current_app_type,omitempty"`
 	DeviceName     string `json:"device_name"`
@@ -172,9 +185,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		state = "running"
 	}
 
+	powerState := "on"
+	if s.powerState != nil {
+		powerState = s.powerState.Get()
+	}
+
 	resp := statusResponse{
 		Version:        s.version,
 		State:          state,
+		PowerState:     powerState,
 		CurrentApp:     activeApp.Name,
 		CurrentAppType: activeApp.AppType,
 		DeviceName:     s.deviceName,
@@ -519,6 +538,11 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
+	}
+
+	// Set power state before executing — HA picks this up immediately
+	if s.powerState != nil {
+		s.powerState.SetPending(req.Action)
 	}
 
 	s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "action": req.Action})
