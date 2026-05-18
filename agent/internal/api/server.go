@@ -175,6 +175,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	for _, g := range s.scanner.GetCached() {
 		gameNames[g.AppID] = g.Name
 	}
+	// Include Non-Steam shortcuts so flatpak apps added to Steam
+	// resolve to their actual name (e.g., "Jellyfin") instead of
+	// "Steam Game 4034310804"
+	for _, sc := range s.shortcuts {
+		if sc.AppID != "" && sc.Name != "" {
+			gameNames[sc.AppID] = sc.Name
+		}
+	}
 
 	activeApp := system.ActiveApp(gameNames)
 
