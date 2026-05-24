@@ -15,4 +15,4 @@ PLATFORMS = ["media_player", "sensor", "number", "button", "select", "switch"]
 ZEROCONF_TYPE = "_boiler-room._tcp.local."
 
 # Update interval (seconds)
-SCAN_INTERVAL = 30
+SCAN_INTERVAL = 15

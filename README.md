@@ -18,7 +18,7 @@ Voice / HA Dashboard
   Home Assistant
         |
   Boiler Room Integration (Python)
-        |  HTTP REST
+        |  HTTP REST + WebSocket
   Boiler Room Agent (Go, on SteamOS)
         |
   Steam / Flatpak / steamosctl / Jellyfin API
@@ -44,6 +44,7 @@ Voice / HA Dashboard
 ### System Control
 - Suspend, shutdown, reboot via voice or buttons
 - Wake-on-LAN — works even when the device is off (MAC address persisted)
+- Real-time power state tracking via WebSocket (on, sleep, shutdown, reboot)
 - Gaming/Desktop mode toggle switch
 - Volume control by voice or slider
 
@@ -187,6 +188,7 @@ Boiler Room is running!
 | Suspend | `button` | Suspend the device |
 | Shutdown | `button` | Shut down the device |
 | Reboot | `button` | Reboot the device |
+| Power State | `sensor` | Real-time power state (on, sleep, shutdown, reboot) |
 | CPU Temperature | `sensor` | Current CPU temperature |
 | GPU Temperature | `sensor` | Current GPU temperature |
 | Battery Level | `sensor` | Battery percentage |
@@ -245,8 +247,34 @@ The agent exposes a REST API at `http://<device-ip>:9451/api/v1/`.
 | `/plugins/{name}/action` | POST | Execute a plugin action |
 | `/update/check` | GET | Check for agent updates |
 | `/update/apply` | POST | Apply a pending update |
-| `/ws` | WebSocket | Real-time state events |
+| `/ws` | WebSocket | Real-time state events (see below) |
 | `/health` | GET | Health check |
+
+### WebSocket Events
+
+Connect to `/api/v1/ws` for real-time push events. The agent sends server-side pings every 30 seconds to keep the connection alive.
+
+**`power_state_changed`** — fires when the system power state changes (via any method: voice, Steam menu, power button, HDMI-CEC remote, etc.)
+
+```json
+{
+  "type": "power_state_changed",
+  "timestamp": 1716566400,
+  "data": {
+    "power_state": "sleep"
+  }
+}
+```
+
+Power state values:
+| Value | Meaning |
+|---|---|
+| `on` | System is running (also sent on wake from sleep) |
+| `sleep` | System is entering suspend |
+| `shutdown` | System is shutting down |
+| `reboot` | System is rebooting |
+
+The HA integration uses these events to update `sensor.<device>_power_state` instantly, enabling automations that react to power changes without polling delay (e.g., turning off a TV when the device sleeps).
 
 ## Voice Commands
 

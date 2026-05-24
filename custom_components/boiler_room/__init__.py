@@ -22,7 +22,7 @@ type BoilerRoomConfigEntry = ConfigEntry
 
 # WebSocket reconnect parameters
 _WS_INITIAL_RETRY = 2  # seconds
-_WS_MAX_RETRY = 5  # seconds — keep low for fast wake detection
+_WS_MAX_RETRY = 30  # seconds
 
 
 async def async_setup_entry(
