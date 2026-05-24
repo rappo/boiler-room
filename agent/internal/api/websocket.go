@@ -130,22 +130,37 @@ func (h *WSHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	h.register <- client
 
-	// Writer goroutine
+	// Writer goroutine — sends queued messages and periodic pings
 	go func() {
+		pingTicker := time.NewTicker(30 * time.Second)
 		defer func() {
+			pingTicker.Stop()
 			conn.Close()
 			h.unregister <- client
 		}()
 
-		for msg := range client.send {
-			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-				return
+		for {
+			select {
+			case msg, ok := <-client.send:
+				if !ok {
+					// Channel closed — send close frame and exit
+					conn.WriteMessage(websocket.CloseMessage, []byte{})
+					return
+				}
+				conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+					return
+				}
+			case <-pingTicker.C:
+				conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
 			}
 		}
 	}()
 
-	// Reader goroutine (just reads to detect close)
+	// Reader goroutine (reads to detect close; pong handler keeps connection alive)
 	go func() {
 		defer func() {
 			h.unregister <- client
@@ -153,9 +168,9 @@ func (h *WSHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}()
 
 		conn.SetReadLimit(512)
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 		conn.SetPongHandler(func(string) error {
-			conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 			return nil
 		})
 
@@ -167,3 +182,4 @@ func (h *WSHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 }
+

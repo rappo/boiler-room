@@ -249,7 +249,10 @@ class BoilerRoomCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 session = aiohttp.ClientSession()
                 try:
                     async with session.ws_connect(
-                        ws_url, heartbeat=30, timeout=10
+                        ws_url,
+                        heartbeat=30,
+                        timeout=aiohttp.ClientWSTimeout(ws_close=10),
+                        receive_timeout=120,
                     ) as ws:
                         self._ws_connected = True
                         retry_delay = _WS_INITIAL_RETRY
