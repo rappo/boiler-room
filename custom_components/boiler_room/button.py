@@ -49,6 +49,7 @@ async def async_setup_entry(
         BoilerRoomPowerButton(api, device_id, device_name, "Suspend", "suspend", "mdi:power-sleep"),
         BoilerRoomPowerButton(api, device_id, device_name, "Shutdown", "shutdown", "mdi:power"),
         BoilerRoomPowerButton(api, device_id, device_name, "Reboot", "reboot", "mdi:restart"),
+        BoilerRoomRestartSteamButton(api, device_id, device_name),
         BoilerRoomWakeButton(coordinator, entry, device_id, device_name, stored_mac),
         BoilerRoomCreateAutomationsButton(device_id, device_name),
     ]
@@ -87,6 +88,37 @@ class BoilerRoomPowerButton(ButtonEntity):
         """Handle the button press."""
         _LOGGER.info("Power action: %s", self._action)
         await self._api.power_action(self._action)
+
+
+class BoilerRoomRestartSteamButton(ButtonEntity):
+    """Restart the Steam client UI (useful when gamescope freezes after a flatpak exit)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Restart Steam UI"
+    _attr_icon = "mdi:steam"
+
+    def __init__(self, api, device_id: str, device_name: str) -> None:
+        """Initialize the restart Steam button."""
+        self._api = api
+        self._device_id = device_id
+        self._attr_unique_id = f"{device_id}_restart_steam"
+
+    @property
+    def device_info(self):
+        """Return device information."""
+        return {"identifiers": {(DOMAIN, self._device_id)}}
+
+    async def async_press(self) -> None:
+        """Restart the Steam client."""
+        _LOGGER.info("Restarting Steam client UI")
+        try:
+            await self._api.restart_steam()
+        except Exception:
+            _LOGGER.warning("restart_steam API call failed, trying power_action fallback")
+            try:
+                await self._api.power_action("restart_steam")
+            except Exception:
+                _LOGGER.error("Failed to restart Steam client")
 
 
 class BoilerRoomWakeButton(ButtonEntity):

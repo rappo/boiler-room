@@ -538,7 +538,7 @@ func (s *Server) handleVolume(w http.ResponseWriter, r *http.Request) {
 // --- Power ---
 
 type powerRequest struct {
-	Action string `json:"action"` // "suspend", "shutdown", "reboot"
+	Action string `json:"action"` // "suspend", "shutdown", "reboot", "restart_steam"
 }
 
 func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
@@ -549,7 +549,7 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set power state before executing — HA picks this up immediately
-	if s.powerState != nil {
+	if s.powerState != nil && req.Action != "restart_steam" {
 		s.powerState.SetPending(req.Action)
 	}
 
@@ -568,6 +568,9 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 		case "reboot":
 			log.Println("Rebooting system...")
 			system.Reboot()
+		case "restart_steam":
+			log.Println("Restarting Steam client...")
+			exec.Command("killall", "steam").Run()
 		}
 	}()
 }

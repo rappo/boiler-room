@@ -125,6 +125,15 @@ class BoilerRoomAPI:
             resp.raise_for_status()
             return await resp.json()
 
+    async def restart_steam(self) -> dict[str, Any]:
+        """Restart the Steam client (kills and lets gamescope relaunch it)."""
+        session = await self._get_session()
+        async with session.post(
+            f"{self.base_url}/system/power", json={"action": "restart_steam"}
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
     # ─── Phase 2: Plugins ───
 
     async def get_plugins(self) -> list[dict[str, Any]]:
