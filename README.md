@@ -661,3 +661,7 @@ Try saying the full name. Partial matches work but can be ambiguous. Check `jour
 ## License
 
 MIT
+
+---
+
+*Built with [Opus](https://www.anthropic.com/claude)*
