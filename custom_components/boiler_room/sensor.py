@@ -364,7 +364,7 @@ class BoilerRoomPowerStateSensor(BoilerRoomSensorBase):
         """Return the power state: on, sleep, shutdown, reboot."""
         if self._status:
             return self._status.get("power_state", "on")
-        return "on"
+        return "unknown"
 
     @property
     def available(self) -> bool:

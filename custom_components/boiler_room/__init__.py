@@ -11,6 +11,7 @@ import aiohttp
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import BoilerRoomAPI
@@ -23,6 +24,8 @@ type BoilerRoomConfigEntry = ConfigEntry
 # WebSocket reconnect parameters
 _WS_INITIAL_RETRY = 2  # seconds
 _WS_MAX_RETRY = 30  # seconds
+_STORAGE_KEY = f"{DOMAIN}.power_state"
+_STORAGE_VERSION = 1
 
 
 async def async_setup_entry(
@@ -41,6 +44,11 @@ async def async_setup_entry(
     api = BoilerRoomAPI(host, port)
 
     coordinator = BoilerRoomCoordinator(hass, api, host, port)
+
+    # Restore last known power state from disk BEFORE the first poll.
+    # If the device is sleeping and HA just restarted, this ensures
+    # the sensor shows "sleep" instead of defaulting to "on".
+    await coordinator.async_load_persisted_state()
 
     # Try to fetch initial data, but don't fail setup if device is offline.
     # This is critical: WoL needs to work when the device is suspended/off.
@@ -199,9 +207,29 @@ class BoilerRoomCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._host = host
         self._port = port
         self._ws_connected = False
+        self._store = Store(hass, _STORAGE_VERSION, _STORAGE_KEY)
         # Holds the last power state pushed via WebSocket, so HTTP poll
         # failures don't overwrite it back to stale data.
         self._ws_power_state: str | None = None
+
+    async def async_load_persisted_state(self) -> None:
+        """Load the last known power state from disk.
+
+        Called during setup so that if HA restarts while the device is
+        sleeping, the sensor shows 'sleep' instead of defaulting to 'on'.
+        """
+        stored = await self._store.async_load()
+        if stored and isinstance(stored, dict):
+            last_state = stored.get("power_state")
+            if last_state and last_state != "on":
+                _LOGGER.info(
+                    "Restoring persisted power state: %s", last_state
+                )
+                self._ws_power_state = last_state
+
+    async def _async_save_power_state(self, state: str) -> None:
+        """Persist the power state to disk."""
+        await self._store.async_save({"power_state": state})
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the agent via HTTP.
@@ -222,8 +250,13 @@ class BoilerRoomCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "sensors": sensors,
                 "shortcuts": shortcuts,
             }
-            # Successful poll — clear the WS override since we have fresh data
-            self._ws_power_state = None
+            # Successful poll — device is online. Clear the WS override
+            # and persist "on" so HA restart doesn't show stale "sleep".
+            if self._ws_power_state is not None:
+                self._ws_power_state = None
+                self.hass.async_create_task(
+                    self._async_save_power_state("on")
+                )
             return result
         except Exception as err:
             # Device unreachable. If the WebSocket already pushed a power
@@ -311,6 +344,10 @@ class BoilerRoomCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "WebSocket: power state changed → %s", new_state
                 )
                 self._ws_power_state = new_state
+                # Persist to disk so it survives HA restarts
+                self.hass.async_create_task(
+                    self._async_save_power_state(new_state)
+                )
                 # Immediately update coordinator data so entities reflect
                 # the new state without waiting for the next HTTP poll.
                 if self.data:
