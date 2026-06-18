@@ -44,6 +44,7 @@ async def async_setup_entry(
         BoilerRoomAmbientTempSensor(coordinator, device_id, device_name),
         BoilerRoomDiskUsageSensor(coordinator, device_id, device_name),
         BoilerRoomHomeSizeSensor(coordinator, device_id, device_name),
+        BoilerRoomSteamAccountSensor(coordinator, device_id, device_name),
     ]
 
     # Only add battery sensor if the device reports one
@@ -375,3 +376,66 @@ class BoilerRoomPowerStateSensor(BoilerRoomSensorBase):
         to 'unavailable'. This prevents false automation triggers.
         """
         return True
+
+
+class BoilerRoomSteamAccountSensor(BoilerRoomSensorBase):
+    """Sensor showing the currently logged-in Steam account.
+
+    State: 'PersonaName (AccountName)' of the active user.
+    Attributes: list of all saved accounts with persona names and Steam IDs.
+    """
+
+    _attr_name = "Steam Account"
+    _attr_icon = "mdi:account"
+
+    def __init__(self, coordinator, device_id: str, device_name: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, device_id, device_name)
+        self._attr_unique_id = f"{device_id}_steam_account"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the active user as 'PersonaName (AccountName)'."""
+        users_data = self._get_users_data()
+        if not users_data:
+            return None
+
+        active = users_data.get("active_user", "")
+        for user in users_data.get("users", []):
+            if user.get("account_name") == active:
+                persona = user.get("persona_name", "")
+                return f"{persona} ({active})" if persona else active
+        return active or None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return all saved Steam accounts as attributes."""
+        users_data = self._get_users_data()
+        if not users_data:
+            return {}
+
+        users = users_data.get("users", [])
+        active = users_data.get("active_user", "")
+        account_list = []
+        for user in users:
+            persona = user.get("persona_name", "")
+            account = user.get("account_name", "")
+            account_list.append({
+                "display": f"{persona} ({account})" if persona else account,
+                "account_name": account,
+                "persona_name": persona,
+                "steam_id": user.get("steam_id", ""),
+                "active": account == active,
+            })
+
+        return {
+            "active_user": active,
+            "accounts": account_list,
+            "account_count": len(account_list),
+        }
+
+    def _get_users_data(self) -> dict:
+        """Get users data from coordinator."""
+        if self.coordinator.data:
+            return self.coordinator.data.get("users", {})
+        return {}

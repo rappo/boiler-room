@@ -243,12 +243,18 @@ class BoilerRoomCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             apps = await self.api.get_apps()
             sensors = await self.api.get_sensors()
             shortcuts = await self.api.get_shortcuts()
+            # Fetch Steam users (optional — agent may not support it yet)
+            try:
+                users = await self.api.get_users()
+            except Exception:
+                users = {}
             result = {
                 "status": status,
                 "games": games,
                 "apps": apps,
                 "sensors": sensors,
                 "shortcuts": shortcuts,
+                "users": users,
             }
             # Successful poll — device is online. Clear the WS override
             # and persist "on" so HA restart doesn't show stale "sleep".
