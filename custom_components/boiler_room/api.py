@@ -180,3 +180,22 @@ class BoilerRoomAPI:
         async with session.get(f"{self.base_url}/recent") as resp:
             resp.raise_for_status()
             return await resp.json()
+
+    # ─── Steam Users ───
+
+    async def get_users(self) -> dict[str, Any]:
+        """Get the list of Steam users and the active account."""
+        session = await self._get_session()
+        async with session.get(f"{self.base_url}/system/users") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+    async def switch_user(self, account_name: str) -> dict[str, Any]:
+        """Switch to a different Steam account (restarts Steam)."""
+        session = await self._get_session()
+        async with session.post(
+            f"{self.base_url}/system/users/switch",
+            json={"account_name": account_name},
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()

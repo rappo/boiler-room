@@ -114,6 +114,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST /api/v1/system/volume", s.handleVolume)
 	mux.HandleFunc("POST /api/v1/system/power", s.handlePower)
 	mux.HandleFunc("POST /api/v1/system/session", s.handleSessionMode)
+	mux.HandleFunc("GET /api/v1/system/users", s.handleUsers)
+	mux.HandleFunc("POST /api/v1/system/users/switch", s.handleUserSwitch)
 	mux.HandleFunc("GET /api/v1/recent", s.handleRecent)
 
 	// Phase 2: Plugins
@@ -704,6 +706,81 @@ func (s *Server) handleSessionMode(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.writeError(w, http.StatusBadRequest, "mode must be 'desktop' or 'gaming'")
 	}
+}
+
+// --- Steam Users ---
+
+type usersResponse struct {
+	ActiveUser string        `json:"active_user"`
+	Users      []system.SteamUser `json:"users"`
+}
+
+func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := system.SteamUsers()
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "Failed to read Steam users: "+err.Error())
+		return
+	}
+
+	active := system.ActiveSteamUser()
+	s.writeJSON(w, http.StatusOK, usersResponse{
+		ActiveUser: active,
+		Users:      users,
+	})
+}
+
+type userSwitchRequest struct {
+	AccountName string `json:"account_name"`
+}
+
+func (s *Server) handleUserSwitch(w http.ResponseWriter, r *http.Request) {
+	var req userSwitchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.AccountName == "" {
+		s.writeError(w, http.StatusBadRequest, "Must provide 'account_name'")
+		return
+	}
+
+	// Block if a game or app is active
+	gameNames := make(map[string]string)
+	for _, g := range s.scanner.GetCached() {
+		gameNames[g.AppID] = g.Name
+	}
+	for _, sc := range s.shortcuts {
+		if sc.AppID != "" && sc.Name != "" {
+			gameNames[sc.AppID] = sc.Name
+		}
+	}
+	activeApp := system.ActiveApp(gameNames)
+	if activeApp.Name != "" {
+		s.writeJSON(w, http.StatusConflict, map[string]string{
+			"status":  "error",
+			"message": fmt.Sprintf("Cannot switch accounts while %q is running. Close it first.", activeApp.Name),
+		})
+		return
+	}
+
+	// Already on this account?
+	if system.ActiveSteamUser() == req.AccountName {
+		s.writeJSON(w, http.StatusOK, map[string]string{
+			"status":  "ok",
+			"message": "Already logged in as " + req.AccountName,
+		})
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "action": "switching_user", "account": req.AccountName})
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		if err := system.SwitchSteamUser(req.AccountName); err != nil {
+			log.Printf("Failed to switch Steam user: %v", err)
+		}
+	}()
 }
 
 // --- Recent Launches ---
