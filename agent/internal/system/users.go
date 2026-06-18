@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // SteamUser represents a Steam account that has logged in on this device.
@@ -85,19 +86,30 @@ func SwitchSteamUser(accountName string) error {
 		return fmt.Errorf("account %q not found in loginusers.vdf", accountName)
 	}
 
-	// Update loginusers.vdf — set MostRecent flags
+	// Kill Steam first — it writes VDF files on exit, which would
+	// overwrite our changes if we wrote them before killing.
+	log.Printf("Killing Steam to switch to account %q...", accountName)
+	exec.Command("killall", "steam").Run()
+
+	// Wait for Steam to fully exit and flush its VDF files
+	for i := 0; i < 20; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if err := exec.Command("pgrep", "-x", "steam").Run(); err != nil {
+			break // Steam is gone
+		}
+	}
+
+	// Now update the VDF files — Steam will read these on relaunch
 	loginUsersPath := filepath.Join(steamDir(), "loginusers.vdf")
 	if err := updateLoginUsersMostRecent(loginUsersPath, accountName); err != nil {
 		return fmt.Errorf("failed to update loginusers.vdf: %w", err)
 	}
 
-	// Update registry.vdf — set AutoLoginUser
 	if err := updateRegistryAutoLogin(registryPath(), accountName); err != nil {
 		return fmt.Errorf("failed to update registry.vdf: %w", err)
 	}
 
-	log.Printf("Switched Steam account to %q, restarting Steam...", accountName)
-	exec.Command("killall", "steam").Run()
+	log.Printf("VDF files updated for %q, gamescope will relaunch Steam.", accountName)
 	return nil
 }
 

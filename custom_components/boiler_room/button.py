@@ -91,14 +91,19 @@ class BoilerRoomPowerButton(ButtonEntity):
 
 
 class BoilerRoomRestartSteamButton(ButtonEntity):
-    """Restart the Steam client UI (useful when gamescope freezes after a flatpak exit)."""
+    """Lock Screen / Show user picker.
+
+    Kills the Steam client, which causes gamescope to show the
+    'Who's playing?' user selection screen. Also useful for
+    recovering from gamescope freezes.
+    """
 
     _attr_has_entity_name = True
-    _attr_name = "Restart Steam UI"
-    _attr_icon = "mdi:steam"
+    _attr_name = "Restart & Lock Steam"
+    _attr_icon = "mdi:lock-reset"
 
     def __init__(self, api, device_id: str, device_name: str) -> None:
-        """Initialize the restart Steam button."""
+        """Initialize the lock screen button."""
         self._api = api
         self._device_id = device_id
         self._attr_unique_id = f"{device_id}_restart_steam"
@@ -109,8 +114,8 @@ class BoilerRoomRestartSteamButton(ButtonEntity):
         return {"identifiers": {(DOMAIN, self._device_id)}}
 
     async def async_press(self) -> None:
-        """Restart the Steam client."""
-        _LOGGER.info("Restarting Steam client UI")
+        """Kill Steam to show the user picker / lock screen."""
+        _LOGGER.info("Lock Screen: restarting Steam client")
         try:
             await self._api.restart_steam()
         except Exception:
