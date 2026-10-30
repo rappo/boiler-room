@@ -1,388 +1,189 @@
 # Boiler Room
 
-> Home Assistant integration for SteamOS — voice-control your games, media, and system from anywhere.
+Home Assistant integration for SteamOS. Launch games and apps, play Jellyfin media, control power and volume, and watch temperatures and disk use on a Steam Deck or SteamOS PC, by voice through Assist or from the dashboard.
 
-**Boiler Room** bridges [Home Assistant](https://www.home-assistant.io/) and [SteamOS](https://store.steampowered.com/steamos), letting you launch games, play Jellyfin media, switch between desktop and gaming mode, and manage your SteamOS device with voice commands, automations, and dashboard controls.
+Two parts:
 
+- **`boiler-room-agent`**, a Go binary running on the SteamOS device. It scans the Steam library and Flatpak apps, reads system sensors, launches things, and serves a REST API with a WebSocket for power-state events.
+- **`boiler_room`**, a Home Assistant custom integration. It finds agents over mDNS, polls the API, creates the entities below, and registers the voice sentences with Assist itself.
 
-## Architecture
+Requires Home Assistant 2026.3 or newer. Jellyfin is optional.
 
-Two components that snap together:
+## Install
 
-1. **`boiler-room-agent`** — A Go binary that runs on your SteamOS device. It scans your game library, monitors system sensors, and exposes a REST API for control.
-2. **`boiler_room` integration** — A Home Assistant custom integration that discovers agents on the network and creates entities for games, media, sensors, and power controls.
-
-```
-Voice / HA Dashboard
-        |
-  Home Assistant
-        |
-  Boiler Room Integration (Python)
-        |  HTTP REST + WebSocket
-  Boiler Room Agent (Go, on SteamOS)
-        |
-  Steam / Flatpak / steamosctl / Jellyfin API
-```
-
-## Features
-
-### Games and Apps
-- Launch any Steam game by voice or from the HA dashboard
-- Launch Flatpak apps (Firefox, Jellyfin, etc.) the same way
-- Fuzzy matching — handles partial names, abbreviations, and aliases
-- Built-in aliases for common games (e.g., "bg3" = Baldur's Gate 3)
-- Recent launches tracked and persisted across reboots
-
-### Jellyfin Integration
-- Search and play movies, shows, music, and albums by voice
-- Type hints to disambiguate ("play the movie Fargo" vs "play the show Fargo")
-- Browse content without playing — navigates to the item's page in the Jellyfin app
-- Auto-launches the Jellyfin app if not running, skips re-launch if already open
-- Configured entirely from the HA UI (Settings > Integrations > Configure)
-- Independent of the official Jellyfin integration — no entity sprawl
-
-### System Control
-- Suspend, shutdown, reboot via voice or buttons
-- Wake-on-LAN — works even when the device is off (MAC address persisted)
-- Real-time power state tracking via WebSocket (on, sleep, shutdown, reboot)
-- Gaming/Desktop mode toggle switch
-- Volume control by voice or slider
-
-### Monitoring
-- CPU and GPU temperature sensors
-- Battery level and charging status
-- Current game detection
-- Installed game and app counts
-
-### Discovery
-- mDNS auto-discovery — HA finds your device automatically
-- Supports multiple SteamOS devices on the same network
-
-## Example Usage
-
-All voice commands work through Home Assistant Assist (voice satellites, the app, or the Assist text box).
-
-### Launch games
-
-```
-"Launch Elden Ring"
-"Play Vampire Survivors"
-"Start Balatro on the steam machine"
-"Fire up Cyberpunk"
-"Put on Stardew Valley"
-```
-
-Aliases work too:
-
-```
-"Play bg3"          → Baldur's Gate 3
-"Launch cyberpunk"  → Cyberpunk 2077
-"Play red dead"     → Red Dead Redemption 2
-"Start civ"         → Sid Meier's Civilization VI
-```
-
-### Launch apps
-
-```
-"Open Firefox on the deck"
-"Launch the Jellyfin app"
-"Start the Chrome app"
-```
-
-### Jellyfin — play media
-
-```
-"Play Robocop on Jellyfin"
-"Watch Breaking Bad on Jellyfin"
-"Listen to Dark Side of the Moon on Jellyfin"
-```
-
-With type hints (when names collide):
-
-```
-"Play the movie Fargo on Jellyfin"
-"Play the show Fargo on Jellyfin"
-"Play the album Fargo on Jellyfin"
-"Listen to the song Bohemian Rhapsody on Jellyfin"
-```
-
-### Jellyfin — browse without playing
-
-```
-"Show me Taskmaster on Jellyfin"
-"Browse Akira Kurosawa on Jellyfin"
-"Look up the show Breaking Bad on Jellyfin"
-"Show me the album Abbey Road on Jellyfin"
-```
-
-This navigates to the item's page in the Jellyfin app without starting playback.
-
-### System control
-
-```
-"Suspend the steam machine"
-"Put the deck to sleep"
-"Shut down the gaming pc"
-"Reboot the steam machine"
-"Set deck volume to 50"
-```
-
-### YouTube
-
-```
-"Search YouTube for cat videos"
-"Play lo-fi beats on YouTube"
-```
-
-## Installation
-
-### Step 1: Install the agent on SteamOS
-
-SSH into your SteamOS device and run the installer:
+### 1. The agent, on the SteamOS device
 
 ```bash
-ssh deck@<your-deck-ip>
+ssh deck@<device-ip>
 curl -fsSL https://raw.githubusercontent.com/rappo/boiler-room/main/install.sh | bash
 ```
 
-The installer will:
-- Download the agent binary to `~/.local/bin/`
-- Create a default config at `~/.config/boiler-room/config.yaml`
-- Set up and start a systemd user service
-- Enable auto-start at boot (even before GUI login)
+The installer downloads the latest release to `~/.local/bin/boiler-room-agent`, writes `~/.config/boiler-room/config.yaml`, and starts a systemd user service (`boiler-room`) that also runs at boot before anyone logs in. It ends with the API address, which you can open in a browser: `http://<device-ip>:9451/api/v1/status`.
 
-You should see output like:
-```
-Boiler Room is running!
+### 2. The integration, in Home Assistant
 
-  API:      http://<device-ip>:9451/api/v1/status
-  Config:   /home/deck/.config/boiler-room/config.yaml
-  Service:  systemctl --user status boiler-room
-```
+HACS: add `https://github.com/rappo/boiler-room` as a custom repository (type Integration), install Boiler Room, restart Home Assistant. Without HACS, copy `custom_components/boiler_room/` into your config's `custom_components/` and restart.
 
-### Step 2: Add the integration in Home Assistant
+Then **Settings → Devices & services → Add integration → Boiler Room**. A device on the same network is discovered and offered; otherwise enter its IP. The confirm step shows the device name and how many games and apps it found.
 
-1. Copy `custom_components/boiler_room/` to your HA config's `custom_components/` directory (or install it through HACS)
-2. Restart Home Assistant
-3. Go to **Settings > Devices & Services > Add Integration**
-4. Search for **Boiler Room**
-5. If your device is on the same network, it may be auto-discovered. Otherwise, enter the IP address.
-6. Confirm the device — you'll see your game count and device name
+Voice commands work as soon as the device is added. There is nothing to import or create.
 
-Voice commands work as soon as the device is added: the integration registers its sentences with Assist itself (see [Voice Commands](#voice-commands)).
+### 3. Options
 
-### Step 3: Configure Jellyfin (optional)
+**Settings → Devices & services → Boiler Room → Configure**:
 
-1. Go to **Settings > Integrations > Boiler Room > Configure**
-2. Enter your Jellyfin server URL (e.g., `http://<jellyfin-ip>:8096`)
-3. Enter your Jellyfin API key (generate one in Jellyfin Dashboard > API Keys)
-4. Submit — the connection is validated before saving
-
-### What you get in HA
-
-| Entity | Type | Description |
-|---|---|---|
-| Media Player | `media_player` | Shows current game, play/pause/stop controls |
-| Quick Launch | `select` | Dropdown to pick and launch a game |
-| Gaming Mode | `switch` | Toggle between gaming mode and desktop mode |
-| Wake (WoL) | `button` | Wake the device via Wake-on-LAN (always available) |
-| Suspend | `button` | Suspend the device |
-| Shutdown | `button` | Shut down the device |
-| Reboot | `button` | Reboot the device |
-| Power State | `sensor` | Real-time power state (on, sleep, shutdown, reboot) |
-| CPU Temperature | `sensor` | Current CPU temperature |
-| GPU Temperature | `sensor` | Current GPU temperature |
-| Battery Level | `sensor` | Battery percentage |
-| Volume | `number` | Volume slider (0-100) |
-| Current Game | `sensor` | Name of the running game |
-
-## Managing the Agent
-
-```bash
-# Check agent status
-systemctl --user status boiler-room
-
-# View logs
-journalctl --user -u boiler-room -f
-
-# Restart the agent
-systemctl --user restart boiler-room
-
-# Edit configuration
-nano ~/.config/boiler-room/config.yaml
-```
-
-### Agent configuration
-
-Located at `~/.config/boiler-room/config.yaml`:
-
-```yaml
-device_name: "steamdeck"       # Name shown in Home Assistant
-api_port: 9451                 # API port (default: 9451)
-log_level: "info"              # Log level: debug, info, warn, error
-preferred_browser: "firefox"   # Browser for YouTube: firefox, chrome, or Flatpak ID
-repo_url: ""                   # Forgejo/GitHub repo URL for self-updates
-```
-
-Jellyfin configuration is managed entirely from the HA UI — no agent-side config needed.
-
-## API Reference
-
-The agent exposes a REST API at `http://<device-ip>:9451/api/v1/`.
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/status` | GET | Device info, game counts, mode, MAC address |
-| `/games` | GET | List installed Steam games |
-| `/games?refresh=true` | GET | Re-scan and list games |
-| `/apps` | GET | List installed Flatpak apps |
-| `/shortcuts` | GET | List non-Steam shortcuts |
-| `/launch` | POST | Launch a game, app, or URL |
-| `/recent` | GET | Recently launched games and apps |
-| `/games/{appid}/artwork/{type}` | GET | Game artwork (grid, hero, icon, logo) |
-| `/system/sensors` | GET | CPU/GPU temp, battery, volume |
-| `/system/volume` | POST | Set volume level or mute |
-| `/system/power` | POST | Suspend, shutdown, or reboot |
-| `/system/session` | POST | Switch between desktop and gaming mode |
-| `/plugins` | GET | List registered plugins |
-| `/plugins/{name}/action` | POST | Execute a plugin action |
-| `/update/check` | GET | Check for agent updates |
-| `/update/apply` | POST | Apply a pending update |
-| `/ws` | WebSocket | Real-time state events (see below) |
-| `/health` | GET | Health check |
-
-### WebSocket Events
-
-Connect to `/api/v1/ws` for real-time push events. The agent sends server-side pings every 30 seconds to keep the connection alive.
-
-**`power_state_changed`** — fires when the system power state changes (via any method: voice, Steam menu, power button, HDMI-CEC remote, etc.)
-
-```json
-{
-  "type": "power_state_changed",
-  "timestamp": 1716566400,
-  "data": {
-    "power_state": "sleep"
-  }
-}
-```
-
-Power state values:
-| Value | Meaning |
+| Option | Purpose |
 |---|---|
-| `on` | System is running (also sent on wake from sleep) |
-| `sleep` | System is entering suspend |
-| `shutdown` | System is shutting down |
-| `reboot` | System is rebooting |
+| Voice nicknames | Names the device answers to in sentences, comma-separated. Blank means the device name plus `deck`, `steam machine`, `gaming pc`. |
+| Jellyfin server URL, API key | Enables the Jellyfin sentences and services. The key comes from Jellyfin Dashboard → API Keys; the connection is checked before saving. |
+| Jellyfin client app | Flatpak ID of the player on the device. Default `org.jellyfin.JellyfinDesktop`. |
+| YouTube client app | Flatpak ID for YouTube searches. Blank uses the device's browser. |
+| Cache artists / albums, refresh interval | Caches library names for phonetic voice matching (see Jellyfin below). |
+| App aliases | Voice names for Flatpak apps, `name=flatpak.id`, one per line or comma-separated. |
 
-The HA integration uses these events to update `sensor.<device>_power_state` instantly, enabling automations that react to power changes without polling delay (e.g., turning off a TV when the device sleeps).
+## What you get
 
-## Voice Commands
+One device per agent, with these entities:
 
-Voice commands need **no setup**. When a device is added, the integration registers its sentences with Assist directly (the same conversation-trigger API HA's automations use), so there is no automation to create, no blueprint to import and no sentence file to copy. Say any of the sentences below to a voice satellite, the app, or the Assist text box.
+| Entity | Type | Notes |
+|---|---|---|
+| `media_player.<device>` | media player | Current game or app, volume, turn off; the media browser lists games and apps to launch |
+| Current Activity | sensor | Running game or app, or `Idle` |
+| Power State | sensor | `on`, `sleep`, `shutdown`, `reboot`; pushed over the WebSocket, kept across HA restarts |
+| CPU, GPU, Ambient Temperature | sensor | As the device reports them |
+| Battery | sensor | Only on devices that report one (Steam Deck) |
+| Disk Usage | sensor | Root filesystem use |
+| Home Directory Size | sensor | Size of `/home/deck`, measured hourly |
+| Installed Games | sensor | Count |
+| Game Library, App Library | sensor | Counts, with the full name lists as attributes |
+| Steam Account | sensor | Logged-in Steam account |
+| Quick Launch | select | Pick a game or app to launch |
+| Volume | number | 0 to 100 |
+| Gaming Mode | switch | On is Game Mode, off is Desktop Mode |
+| Suspend, Shutdown, Reboot | button | |
+| Restart & Lock Steam | button | Returns to the Steam user picker |
+| Wake (WoL) | button | Wake-on-LAN; the MAC is stored, so it works while the device is off and unreachable |
 
-### Device nicknames
+## Voice commands
 
-Sentences that name the device accept any of its **nicknames**. By default a device answers to its own name (as the agent reports it, e.g. `steamdeck`) plus `deck`, `steam machine` and `gaming pc`. Change them under **Settings → Integrations → Boiler Room → Configure → Voice nicknames** (comma-separated); the sentences update immediately.
+Say these to any Assist endpoint: a voice satellite, the companion app, or the Assist text box. The integration registers them as a conversation trigger, the same mechanism HA automations use, so they only fire with the Home Assistant conversation agent (an LLM agent set to never use HA intents will not see them).
 
-With **one device**, sentences without a device name ("Launch Balatro", "Set volume to 30") target it. With **two or more devices**, say the nickname ("Launch Balatro on the living room pc"); a nickname shared by several devices, or a sentence with no device, makes Assist ask which one you mean. Give each device a distinct nickname to avoid the question.
+`<device>` is any of the device's voice nicknames. With one device you can leave it out ("Launch Balatro", "Set volume to 30"). With several, name one ("Launch Balatro on the living room pc"); a sentence without a device, or a nickname two devices share, makes Assist ask which one you mean.
 
-### System controls
+### System
 
-| Sentence | What it does |
+| Sentence | Does |
 |---|---|
-| `Wake up / Turn on / Power on the <device>` | Sends a Wake-on-LAN magic packet |
-| `Suspend / Sleep the <device>` · `Put the <device> to sleep` | Suspends the device |
-| `Turn off / Shut down / Power off the <device>` | Shuts down the device |
-| `Reboot / Restart the <device>` | Reboots the device |
-| `Set the <device> volume to 50` · `Volume 50 on the <device>` · `Set volume to 50` | Sets volume (0–100) |
+| `Wake up / Turn on / Power on the <device>` | Wake-on-LAN |
+| `Suspend / Sleep the <device>` · `Put the <device> to sleep` | Suspend |
+| `Turn off / Shut down / Power off the <device>` | Shut down |
+| `Reboot / Restart the <device>` | Reboot |
+| `Set the <device> volume to 50` · `Volume 50 on the <device>` · `Set volume to 50` | Volume 0 to 100 |
 
 ### Games and apps
 
-| Sentence | What it does |
+| Sentence | Does |
 |---|---|
-| `Launch / Play / Start / Open / Run / Boot up / Fire up <game>` | Fuzzy match and launch (aliases work: "bg3") |
-| `Put on <game>` | Same |
+| `Launch / Play / Start / Open / Run / Boot up / Fire up <game>` · `Put on <game>` | Fuzzy-matches the installed Steam games and launches the best one. Aliases work: "bg3", "cyberpunk", "red dead", "civ". |
 | `Play <game> on the <device>` | Same, on a named device |
-| `Launch / Start / Open the <app> app` | Launch a Flatpak app (your app aliases are checked first) |
+| `Launch / Start / Open the <app> app` | Launches a Flatpak app; your app aliases are checked first |
 | `Open the <app> app on the <device>` | Same, on a named device |
 
-A game sentence that matches no game falls back to apps, and vice versa.
+A game name that matches nothing is tried as an app, and the other way around.
 
-### Jellyfin media
+### Jellyfin
 
-Jellyfin sentences target the device whose options have Jellyfin configured. `Jelly Fin`, `Jellyfish` and `jelly fin` are accepted spellings for what speech-to-text makes of "Jellyfin".
+Needs the Jellyfin URL and API key in options. "Jelly Fin", "Jellyfish" and "jelly fin" are accepted, since that is what speech-to-text tends to produce.
 
-| Sentence | What it does |
+| Sentence | Does |
 |---|---|
-| `Play / Watch / Listen to / Put on <query> on Jellyfin` | Search and play the top result |
-| `Play the movie <query> on Jellyfin` | Movie only |
-| `Play the show / series <query> on Jellyfin` | Series only |
-| `Play the album <query> on Jellyfin` | Album only |
-| `Play the song <query> on Jellyfin` | Song only |
-| `Show me / Browse / Look up <query> on Jellyfin` | Open the item's page without playing |
-| `Show / Find the movie / show / album / artist <query> on Jellyfin` | Same, with a type hint |
-| `Pause Jellyfin / playback / the stream` | Pause |
-| `Resume / Unpause Jellyfin` | Resume |
-| `Stop Jellyfin` | Stop |
-| `Rewind / Go back / Skip back Jellyfin` | Seek backward |
-| `Fast forward / Skip forward / Skip ahead Jellyfin` | Seek forward |
-| `Search YouTube for <query>` · `Play <query> on YouTube` | Open a YouTube search on the device |
+| `Play / Watch / Listen to / Put on <query> on Jellyfin` | Searches and plays the top result |
+| `Play the movie / show / series / album / song <query> on Jellyfin` | Same, limited to that type |
+| `Show me / Browse / Look up <query> on Jellyfin` | Opens the item's page without playing |
+| `Show / Find the movie / show / album / artist <query> on Jellyfin` | Same, with a type |
+| `Pause / Resume / Unpause / Stop Jellyfin` | Playback control (`playback` and `the stream` also work) |
+| `Rewind / Go back / Skip back Jellyfin` · `Fast forward / Skip forward / Skip ahead Jellyfin` | Seek |
+| `Search YouTube for <query>` · `Open / Play / Watch <query> on YouTube` | Opens a YouTube search in the configured client |
 
-### Upgrading from the automation-based setup
-
-Versions before 2026.10.29.1 shipped a **Create Voice Automations** button that wrote three automations to your `automations.yaml`. Those automations keep working, but now Boiler Room answers the same sentences itself, so each command would run twice and Assist may answer twice. If you pressed that button, delete the three automations named `Boiler Room: System Controls`, `Boiler Room: Games & Apps` and `Boiler Room: Jellyfin Media` (ids `boiler_room_system_controls`, `boiler_room_games_and_apps`, `boiler_room_jellyfin_media`) in **Settings → Automations**, or remove them from `automations.yaml` and reload automations. The blueprints under `blueprints/automation/boiler_room/`, if you imported them, can go too. The button entity itself is removed from the registry on the first start of the new version.
+The Jellyfin app is launched if it is not running. With caching on, artist and album names are matched phonetically, so "dead mouse" finds deadmau5 and "gorillas" finds Gorillaz.
 
 ### Services
 
-The same handlers behind the voice commands are exposed as HA services, callable from automations, scripts, or Developer Tools. Every service takes an optional `device` (a nickname, the device name or the entry title); without it the first device that was reached is used.
+Everything the sentences do is also a service, for automations and scripts. Each takes an optional `device` (nickname, device name or entry title); without it the first reachable device is used. All return `speech`, usable with `set_conversation_response`.
 
-| Service | Parameters |
+| Service | Fields |
 |---|---|
 | `boiler_room.launch_game` | `name` |
 | `boiler_room.launch_app` | `name` |
-| `boiler_room.jellyfin_play` | `query`, optional `type` (Movie, Series, Audio, MusicAlbum, Episode) |
-| `boiler_room.jellyfin_browse` | `query`, optional `type` |
-| `boiler_room.jellyfin_control` | `action` (pause/unpause/stop/rewind/fastforward) |
+| `boiler_room.jellyfin_play` | `query`, optional `type`: Movie, Series, Audio, MusicAlbum, Episode |
+| `boiler_room.jellyfin_browse` | `query`, optional `type`: those plus MusicArtist, Person |
+| `boiler_room.jellyfin_control` | `action`: pause, unpause, stop, rewind, fastforward |
 | `boiler_room.youtube_search` | `query` |
-| `boiler_room.power` | `action` (suspend/shutdown/reboot) |
-| `boiler_room.wake` | — |
-| `boiler_room.set_volume` | `level` (0–100) |
+| `boiler_room.power` | `action`: suspend, shutdown, reboot |
+| `boiler_room.wake` | |
+| `boiler_room.set_volume` | `level` 0 to 100 |
 
-All services return a response with a `speech` key, for `set_conversation_response` in your own automations.
+## The agent
 
-### Jellyfin Phonetic Matching
+```bash
+systemctl --user status boiler-room
+journalctl --user -u boiler-room -f
+systemctl --user restart boiler-room
+```
 
-If Jellyfin voice caching is enabled (Settings → Integrations → Boiler Room → Configure), the integration caches your library and matches voice queries phonetically. This handles artists and albums with unusual spellings that STT engines mangle:
+`~/.config/boiler-room/config.yaml`:
 
-| You say | STT transcribes | Cache matches |
+```yaml
+device_name: "steamdeck"      # name shown in Home Assistant and used as a voice nickname
+api_port: 9451
+log_level: "info"             # debug, info, warn, error
+preferred_browser: "firefox"  # for YouTube when no client app is set: firefox, chrome, or a Flatpak ID
+repo_url: ""                  # GitHub repo URL; enables update checks on release builds
+```
+
+Jellyfin needs nothing on the agent side; the integration talks to the Jellyfin server directly and only asks the agent to launch the app.
+
+Every request is logged in the journal except fast, successful GETs. Power actions try Steam's D-Bus, then `loginctl`, then logind over D-Bus, and only then `sudo systemctl`, so the sudoers rule the installer offers is a fallback, not a requirement.
+
+### API
+
+Base URL `http://<device-ip>:9451/api/v1`.
+
+| Endpoint | Method | Returns or does |
 |---|---|---|
-| "Play deadmau5" | "dead mouse" | deadmau5 (82%) |
-| "Play Nine Inch Noize" | "nine inch noise" | Nine Inch Noize (93%) |
-| "Play Gorillaz" | "gorillas" | Gorillaz (88%) |
-| "Play Mötley Crüe" | "motley crew" | Mötley Crüe (91%) |
+| `/status` | GET | Version, power state, current app, device name and ID, MAC, counts |
+| `/games`, `/apps`, `/shortcuts` | GET | Installed Steam games, Flatpak apps, non-Steam shortcuts; `?refresh=true` rescans |
+| `/games/{appid}/artwork/{type}` | GET | Artwork: grid, hero, icon, logo |
+| `/recent` | GET | Recently launched games and apps |
+| `/launch` | POST | Launch a game, app or URL |
+| `/system/sensors` | GET | Temperatures, battery, disk, home size, volume |
+| `/system/volume` | POST | Set volume or mute |
+| `/system/power` | POST | suspend, shutdown, reboot, restart_steam |
+| `/system/session` | POST | Switch to gaming or desktop mode |
+| `/system/users` | GET | Steam accounts on the device and which is logged in |
+| `/system/users/switch` | POST | Log in as another account |
+| `/plugins`, `/plugins/{name}/action` | GET, POST | Registered plugins and their actions |
+| `/update/check`, `/update/apply` | GET, POST | Self-update against the newest GitHub release (release builds with `repo_url` only) |
+| `/ws` | WebSocket | Power-state events, with a server ping every 30 s |
+
+`/health` at the root (no `/api/v1`) answers `ok`, a plain liveness probe.
+
+A WebSocket event looks like `{"type": "power_state_changed", "timestamp": 1716566400, "data": {"power_state": "sleep"}}`. The integration applies it to the Power State sensor at once, which is what makes "turn the TV off when the device sleeps" automations prompt.
 
 ## Troubleshooting
 
-### Voice command not recognized
-The sentences are registered when the integration loads, so check that the device shows as loaded under Settings → Integrations and that Assist is using the Home Assistant conversation agent (sentence triggers only fire there, not inside an LLM agent that is set to never use HA intents). Enable debug logging for `custom_components.boiler_room` to see "Registered N voice sentences" and, per command, which handler a sentence was routed to. If a sentence names a device, the word you use must be one of its voice nicknames (Configure → Voice nicknames).
+**A sentence is not recognized.** Check the device is loaded under Settings → Devices & services and that Assist uses the Home Assistant conversation agent. If the sentence names the device, the word must be one of its voice nicknames. Settings → Voice assistants → Assist → Debug shows which trigger a sentence would match without running it. Debug logging for `custom_components.boiler_room` shows the registered sentences and which handler each command reached.
 
-### Assist answers twice
-You still have the automations the old **Create Voice Automations** button created. Delete them; see [Upgrading from the automation-based setup](#upgrading-from-the-automation-based-setup).
+**Assist answers twice.** Versions before 2026.10.29.1 had a "Create Voice Automations" button that wrote three automations (`Boiler Room | System Controls`, `Boiler Room | Games & Apps`, `Boiler Room | Jellyfin Media`). The integration now answers those sentences itself, so delete the three automations and any blueprints you imported for them.
 
-### WoL button is disabled
-The WoL button should always be available. If it's disabled, restart HA — this was fixed in v0.5.0 by decoupling the WoL button from the coordinator.
+**Jellyfin says there is no active player session.** The Jellyfin app on the device is not running and could not be started. Install it: `flatpak install org.jellyfin.JellyfinDesktop`.
 
-### Jellyfin says "no active player session"
-The Jellyfin app needs to be running on the SteamOS device. The integration will auto-launch it, but if the app crashes or isn't installed, you'll see this error. Install Jellyfin Desktop via Flatpak: `flatpak install org.jellyfin.JellyfinDesktop`.
+**A game is not found.** Say more of the name. `journalctl --user -u boiler-room -f` on the device shows what the agent was asked to launch.
 
-### Game not found
-Try saying the full name. Partial matches work but can be ambiguous. Check `journalctl --user -u boiler-room -f` on the SteamOS device to see what the agent received.
+## Development
+
+See [AGENTS.md](AGENTS.md) for the layout, the two test layers, and how to run them.
 
 ## License
 
 MIT
-
----
-
-*Built with [Opus](https://www.anthropic.com/claude)*
