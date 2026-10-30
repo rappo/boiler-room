@@ -7,7 +7,7 @@ Two parts:
 - **`boiler-room-agent`**, a Go binary running on the SteamOS device. It scans the Steam library and Flatpak apps, reads system sensors, launches things, and serves a REST API with a WebSocket for power-state events.
 - **`boiler_room`**, a Home Assistant custom integration. It finds agents over mDNS, polls the API, creates the entities below, and registers the voice sentences with Assist itself.
 
-Requires Home Assistant 2026.3 or newer. Jellyfin is optional.
+Requires Home Assistant 2026.10 or newer. Jellyfin is optional.
 
 ## Install
 
@@ -23,6 +23,8 @@ The installer downloads the latest release to `~/.local/bin/boiler-room-agent`, 
 ### 2. The integration, in Home Assistant
 
 HACS: add `https://github.com/rappo/boiler-room` as a custom repository (type Integration), install Boiler Room, restart Home Assistant. Without HACS, copy `custom_components/boiler_room/` into your config's `custom_components/` and restart.
+
+Needs Home Assistant 2026.10.0 or newer: that release added the integration-provided LLM tools this integration ships (`llm.py`), with the tool annotations that mark the power actions destructive and the status ones read-only.
 
 Then **Settings → Devices & services → Add integration → Boiler Room**. A device on the same network is discovered and offered; otherwise enter its IP. The confirm step shows the device name and how many games and apps it found.
 
@@ -66,9 +68,12 @@ One device per agent, with these entities:
 
 ## Voice commands
 
-Say these to any Assist endpoint: a voice satellite, the companion app, or the Assist text box. The integration registers them as a conversation trigger, the same mechanism HA automations use. An Assist pipeline checks sentence triggers before it hands the text to its conversation agent, so they fire with every pipeline, including one that uses an LLM agent.
+Every command is a Home Assistant intent (`BoilerRoomLaunchGame`, `BoilerRoomPower`, ...; the full list is under [Intents and tools](#intents-and-tools)). Two lanes reach them:
 
-`<device>` is any of the device's voice nicknames. With one device you can leave it out ("Launch Balatro", "Set volume to 30"). With several, name one ("Launch Balatro on the living room pc"); a sentence without a device, or a nickname two devices share, makes Assist ask which one you mean.
+- **Exact sentences, every pipeline, instantly.** The tables below are registered as a conversation trigger, the mechanism HA automations use. An Assist pipeline checks sentence triggers before it hands the text to its conversation agent, so these work offline with the Home Assistant agent and with any LLM agent, with no model call.
+- **Free phrasing, with an LLM conversation agent.** A pipeline whose agent (Ollama, OpenAI, Anthropic, Google, ...) has the *Assist* API enabled gets one tool per intent, with descriptions that say when to use which. "Can you put something from the Criterion collection on the deck" or "what is the Steam machine doing right now" then work without a matching sentence, and the agent can ask about the status or the recent launches, which have no sentences at all. With the [MCP Server](https://www.home-assistant.io/integrations/mcp_server/) integration the same tools reach external MCP clients.
+
+Say the sentences to any Assist endpoint: a voice satellite, the companion app, or the Assist text box. `<device>` is any of the device's voice nicknames. With one device you can leave it out ("Launch Balatro", "Set volume to 30"). With several, name one ("Launch Balatro on the living room pc"); a sentence without a device, or a nickname two devices share, makes Assist ask which one you mean. The sentences are the core phrasings only; an LLM agent covers the rest.
 
 ### System
 
@@ -107,21 +112,41 @@ Needs the Jellyfin URL and API key in options. "Jelly Fin", "Jellyfish" and "jel
 
 The Jellyfin app is launched if it is not running. With caching on, artist and album names are matched phonetically, so "dead mouse" finds deadmau5 and "gorillas" finds Gorillaz.
 
+### Intents and tools
+
+Each action is one intent; an LLM agent sees it as the tool `boiler_room__<intent>`, and `conversation.process`, scripts and the `/api/intent/handle` endpoint can call it by intent name. Every one takes an optional `device` slot (nickname, device name or entry title). Without it, an action that changes one device goes to the only device or asks which one; the Jellyfin actions pick the device with Jellyfin configured; the read-only ones report on every device.
+
+| Intent | Slots | Tool annotations |
+|---|---|---|
+| `BoilerRoomLaunchGame` | `name` | |
+| `BoilerRoomLaunchApp` | `name` | |
+| `BoilerRoomJellyfinPlay` | `query`, optional `type`: Movie, Series, Episode, Audio, MusicAlbum | |
+| `BoilerRoomJellyfinBrowse` | `query`, optional `type`: those plus MusicArtist, Person | |
+| `BoilerRoomJellyfinControl` | `action`: pause, unpause, stop, rewind, fastforward | idempotent |
+| `BoilerRoomYoutubeSearch` | `query` | |
+| `BoilerRoomPower` | `action`: suspend, shutdown, reboot | destructive |
+| `BoilerRoomWake` | | idempotent |
+| `BoilerRoomSetVolume` | `level` 0 to 100 | idempotent |
+| `BoilerRoomGetStatus` | | read-only |
+| `BoilerRoomListRecent` | | read-only |
+
 ### Services
 
-Everything the sentences do is also a service, for automations and scripts. Each takes an optional `device` (nickname, device name or entry title); without it the first reachable device is used. All return `speech`, usable with `set_conversation_response`.
+Everything above is also a service, for automations and scripts. Each takes the same fields plus the optional `device`; without it the first reachable device is used (services never ask). All return `speech`, usable with `set_conversation_response`, and the read-only ones return their facts as well.
 
 | Service | Fields |
 |---|---|
 | `boiler_room.launch_game` | `name` |
 | `boiler_room.launch_app` | `name` |
-| `boiler_room.jellyfin_play` | `query`, optional `type`: Movie, Series, Audio, MusicAlbum, Episode |
-| `boiler_room.jellyfin_browse` | `query`, optional `type`: those plus MusicArtist, Person |
-| `boiler_room.jellyfin_control` | `action`: pause, unpause, stop, rewind, fastforward |
+| `boiler_room.jellyfin_play` | `query`, optional `type` |
+| `boiler_room.jellyfin_browse` | `query`, optional `type` |
+| `boiler_room.jellyfin_control` | `action` |
 | `boiler_room.youtube_search` | `query` |
-| `boiler_room.power` | `action`: suspend, shutdown, reboot |
+| `boiler_room.power` | `action` |
 | `boiler_room.wake` | |
-| `boiler_room.set_volume` | `level` 0 to 100 |
+| `boiler_room.set_volume` | `level` |
+| `boiler_room.get_status` | |
+| `boiler_room.list_recent` | |
 
 ## The agent
 
@@ -172,7 +197,9 @@ A WebSocket event looks like `{"type": "power_state_changed", "timestamp": 17165
 
 ## Troubleshooting
 
-**A sentence is not recognized.** Check the device is loaded under Settings → Devices & services. If the sentence names the device, the word must be one of its voice nicknames. Settings → Voice assistants → Assist → Debug shows which trigger a sentence would match without running it. Debug logging for `custom_components.boiler_room` shows the registered sentences and which handler each command reached.
+**A sentence is not recognized.** Check the device is loaded under Settings → Devices & services. If the sentence names the device, the word must be one of its voice nicknames. Settings → Voice assistants → Assist → Debug shows which trigger a sentence would match without running it. Debug logging for `custom_components.boiler_room` shows the registered sentences and which intent each command reached. Phrasings outside the tables need a pipeline with an LLM conversation agent.
+
+**An LLM agent does not know about the device.** The agent's *Control Home Assistant* (Assist API) option must be on; the tools are listed under Settings → Voice assistants → the agent's debug view as `boiler_room__...`. A device must be loaded: the tools exist only while one is.
 
 **Assist answers twice.** Versions before 2026.10.29.1 had a "Create Voice Automations" button that wrote three automations (`Boiler Room | System Controls`, `Boiler Room | Games & Apps`, `Boiler Room | Jellyfin Media`). The integration now answers those sentences itself, so delete the three automations and any blueprints you imported for them.
 
