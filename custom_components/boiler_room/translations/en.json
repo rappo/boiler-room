@@ -27,8 +27,9 @@
     "step": {
       "init": {
         "title": "Boiler Room Settings",
-        "description": "Configure optional integrations for your SteamOS device.",
+        "description": "Voice nicknames and optional integrations for this SteamOS device. Voice commands need no setup: say \"Suspend the deck\" or \"Launch Balatro on the steam machine\" to Assist.",
         "data": {
+          "device_nicknames": "Voice nicknames",
           "jellyfin_url": "Jellyfin Server URL",
           "jellyfin_api_key": "Jellyfin API Key",
           "jellyfin_app_id": "Jellyfin Client App (Flatpak ID)",
@@ -39,6 +40,7 @@
           "app_aliases": "App aliases"
         },
         "data_description": {
+          "device_nicknames": "Names this device answers to in voice commands, comma-separated (\"Suspend the deck\"). Leave blank for the defaults: the device name plus deck, steam machine, gaming pc. A nickname two devices share makes Assist ask which one you mean.",
           "jellyfin_url": "e.g. http://your-server:8096",
           "jellyfin_api_key": "Generate in Jellyfin Dashboard → API Keys",
           "jellyfin_app_id": "Default: org.jellyfin.JellyfinDesktop. Use your preferred Flatpak client.",

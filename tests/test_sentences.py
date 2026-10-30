@@ -86,6 +86,19 @@ class SharedNicknameTest(unittest.TestCase):
         self.assertEqual(unique, {"entry_a": ["steamdeck"], "entry_b": ["living room pc"]})
         self.assertEqual(shared, ["deck", "steam machine", "gaming pc"])
 
+    def test_a_device_keeps_its_own_name(self):
+        # Device A is literally named "deck", which is also a default nickname of B.
+        devices = {"a": ["deck", "steam machine"], "b": ["living room pc", "deck", "steam machine"]}
+        unique, shared = split_shared_nicknames(devices, {"a": "Deck", "b": "living room pc"})
+        self.assertEqual(unique, {"a": ["deck"], "b": ["living room pc"]})
+        self.assertEqual(shared, ["steam machine"])
+
+    def test_two_devices_with_the_same_name_still_ask(self):
+        devices = {"a": ["deck"], "b": ["deck"]}
+        unique, shared = split_shared_nicknames(devices, {"a": "deck", "b": "deck"})
+        self.assertEqual(unique, {"a": [], "b": []})
+        self.assertEqual(shared, ["deck"])
+
 
 class MatchDeviceTest(unittest.TestCase):
     NAMES = {

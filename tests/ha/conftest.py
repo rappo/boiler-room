@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import aiohttp
 import custom_components
 import pytest
+from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 # Under pytest the harness's own testing_config/custom_components package is
@@ -32,6 +33,17 @@ ENTRY_DATA = {"host": "192.0.2.10", "port": 9451, "device_name": "deck", "device
 def auto_enable_custom_integrations(enable_custom_integrations):
     """Let the harness load custom_components/boiler_room."""
     yield
+
+
+@pytest.fixture(autouse=True)
+async def homeassistant_component(hass):
+    """Set up the `homeassistant` component, as a real HA always has.
+
+    Boiler Room depends on `conversation`, whose default agent reads the
+    exposed-entities store that component creates; the bare `hass`
+    fixture does not load it.
+    """
+    assert await async_setup_component(hass, "homeassistant", {})
 
 
 @pytest.fixture(autouse=True)

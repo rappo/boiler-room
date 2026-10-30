@@ -12,12 +12,15 @@ import aiohttp
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import BoilerRoomAPI
-from .const import CONF_HOST, CONF_PORT, DOMAIN, PLATFORMS, SCAN_INTERVAL
+from .const import CONF_DEVICE_ID, CONF_HOST, CONF_PORT, DOMAIN, PLATFORMS, SCAN_INTERVAL
+from .services import async_register_services, async_unregister_services
+from .voice import async_refresh_voice_triggers, async_remove_voice_triggers
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,10 +47,10 @@ async def async_setup_entry(
 ) -> bool:
     """Set up Boiler Room from a config entry.
 
-    The setup succeeds even when the device is offline: WoL and
-    Create Voice Automations buttons must always be available.
-    The coordinator polls in the background and entities that need
-    live data show as unavailable until the device comes online.
+    The setup succeeds even when the device is offline: the WoL button
+    and the voice sentences must always be available. The coordinator
+    polls in the background and entities that need live data show as
+    unavailable until the device comes online.
     """
     host = entry.data[CONF_HOST]
     port = entry.data[CONF_PORT]
@@ -65,7 +68,7 @@ async def async_setup_entry(
     except Exception:
         _LOGGER.warning(
             "Could not reach %s:%s on startup; will keep retrying. "
-            "WoL and Create Voice Automations are still available.",
+            "WoL and voice commands are still available.",
             host, port,
         )
 
@@ -81,8 +84,10 @@ async def async_setup_entry(
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    from .services import async_register_services
+    _remove_legacy_entities(hass, entry)
+
     async_register_services(hass)
+    async_refresh_voice_triggers(hass)
 
     ws_task = hass.async_create_background_task(
         coordinator.async_start_websocket(),
@@ -116,16 +121,24 @@ async def async_unload_entry(
         if cache:
             await cache.stop()
 
+        if hass.data[DOMAIN]:
+            async_refresh_voice_triggers(hass)
+        else:
+            async_remove_voice_triggers(hass)
+            async_unregister_services(hass)
+
     return unload_ok
 
 
 async def _async_options_updated(
     hass: HomeAssistant, entry: BoilerRoomConfigEntry
 ) -> None:
-    """Handle options update: restart the Jellyfin cache with new settings."""
+    """Handle options update: new nicknames and Jellyfin cache settings."""
     entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
     if not entry_data:
         return
+
+    async_refresh_voice_triggers(hass)
 
     old_cache = entry_data.get("jellyfin_cache")
     if old_cache:
@@ -133,6 +146,22 @@ async def _async_options_updated(
         entry_data["jellyfin_cache"] = None
 
     await _start_jellyfin_cache(hass, entry)
+
+
+def _remove_legacy_entities(hass: HomeAssistant, entry: BoilerRoomConfigEntry) -> None:
+    """Drop registry entries for entities this version no longer creates.
+
+    The "Create Voice Automations" button went away in 2026.10.29.1 when
+    the integration started registering its sentences itself. Without
+    this the button lingers as "unavailable" on the device page.
+    """
+    registry = er.async_get(hass)
+    device_id = entry.data.get(CONF_DEVICE_ID, entry.entry_id)
+    for unique_id in (f"{device_id}_create_voice_automations",):
+        entity_id = registry.async_get_entity_id("button", DOMAIN, unique_id)
+        if entity_id:
+            _LOGGER.info("Removing retired entity %s", entity_id)
+            registry.async_remove(entity_id)
 
 
 async def _start_jellyfin_cache(

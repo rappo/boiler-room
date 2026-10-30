@@ -12,15 +12,17 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .api import BoilerRoomAPI
-from .core import jellyfin
 from .const import (
     CONF_DEVICE_ID,
     CONF_DEVICE_NAME,
+    CONF_DEVICE_NICKNAMES,
     CONF_HOST,
     CONF_PORT,
     DEFAULT_PORT,
     DOMAIN,
 )
+from .core import jellyfin
+from .core.sentences import default_nicknames, nicknames_text, parse_nicknames
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -176,7 +178,14 @@ DEFAULT_CACHE_INTERVAL = 30  # minutes
 
 
 class BoilerRoomOptionsFlow(OptionsFlow):
-    """Handle options for Boiler Room (Jellyfin, YouTube, etc.)."""
+    """Handle options for Boiler Room (voice nicknames, Jellyfin, YouTube)."""
+
+    def _default_nicknames_text(self) -> str:
+        """The nicknames field as stored, or the defaults for this device."""
+        stored = parse_nicknames(self.config_entry.options.get(CONF_DEVICE_NICKNAMES))
+        if stored:
+            return nicknames_text(stored)
+        return nicknames_text(default_nicknames(self.config_entry.data.get(CONF_DEVICE_NAME)))
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -185,6 +194,12 @@ class BoilerRoomOptionsFlow(OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            # Store nicknames normalized (lowercase, deduplicated); a blank
+            # field falls back to the defaults, so it is stored blank.
+            user_input[CONF_DEVICE_NICKNAMES] = nicknames_text(
+                parse_nicknames(user_input.get(CONF_DEVICE_NICKNAMES))
+            )
+
             # Validate Jellyfin connection if URL provided
             jf_url = user_input.get(CONF_JELLYFIN_URL, "").strip()
             jf_key = user_input.get(CONF_JELLYFIN_API_KEY, "").strip()
@@ -207,6 +222,10 @@ class BoilerRoomOptionsFlow(OptionsFlow):
             step_id="init",
             data_schema=vol.Schema(
                 {
+                    vol.Optional(
+                        CONF_DEVICE_NICKNAMES,
+                        default=self._default_nicknames_text(),
+                    ): str,
                     vol.Optional(
                         CONF_JELLYFIN_URL,
                         default=current.get(CONF_JELLYFIN_URL, ""),

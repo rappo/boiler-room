@@ -121,20 +121,37 @@ def nicknames_text(nicknames: Sequence[str]) -> str:
 
 def split_shared_nicknames(
     devices: Mapping[str, Sequence[str]],
+    own_names: Mapping[str, str] | None = None,
 ) -> tuple[dict[str, list[str]], list[str]]:
     """Separate nicknames unique to one device from ones several devices use.
 
     Two devices both called "deck" would both answer "Suspend the deck", so
     shared nicknames are taken away from every device and returned apart;
     the caller registers them with an "ambiguous device" response.
+
+    ``own_names`` maps entry id to the device's own name. A device always
+    keeps its own name, even when another device lists it as a nickname:
+    with the default nicknames a device named "deck" would otherwise lose
+    every sentence as soon as a second device appears.
     """
-    owners: dict[str, int] = {}
-    for nicks in devices.values():
+    own = {eid: clean_nickname(name) for eid, name in (own_names or {}).items()}
+    owners: dict[str, list[str]] = {}
+    for entry_id, nicks in devices.items():
         for nick in dict.fromkeys(nicks):
-            owners[nick] = owners.get(nick, 0) + 1
-    shared = [nick for nick, count in owners.items() if count > 1]
+            owners.setdefault(nick, []).append(entry_id)
+
+    def keeper(nick: str) -> str | None:
+        """The one device that owns ``nick`` as its name, if exactly one."""
+        named = [eid for eid in owners[nick] if own.get(eid) == nick]
+        return named[0] if len(named) == 1 else None
+
+    shared = [nick for nick, eids in owners.items() if len(eids) > 1 and keeper(nick) is None]
     unique = {
-        entry_id: [nick for nick in dict.fromkeys(nicks) if nick not in shared]
+        entry_id: [
+            nick
+            for nick in dict.fromkeys(nicks)
+            if nick not in shared and (len(owners[nick]) == 1 or keeper(nick) == entry_id)
+        ]
         for entry_id, nicks in devices.items()
     }
     return unique, shared
@@ -285,18 +302,22 @@ _GENERIC_COMMANDS: tuple[tuple[str, str, dict[str, str]], ...] = (
 )
 
 
-def build_commands(devices: Mapping[str, Sequence[str]]) -> list[Command]:
+def build_commands(
+    devices: Mapping[str, Sequence[str]],
+    own_names: Mapping[str, str] | None = None,
+) -> list[Command]:
     """Every sentence to register, in match-priority order.
 
-    ``devices`` maps config entry id to that device's nicknames. With no
-    devices nothing is returned (nothing to control). Generic sentences
-    carry ``entry_id=None``; the caller targets the only device or, with
-    several, asks which one.
+    ``devices`` maps config entry id to that device's nicknames and
+    ``own_names`` to its device name (see :func:`split_shared_nicknames`).
+    With no devices nothing is returned (nothing to control). Generic
+    sentences carry ``entry_id=None``; the caller targets the only device
+    or, with several, asks which one.
     """
     if not devices:
         return []
 
-    unique, shared = split_shared_nicknames(devices)
+    unique, shared = split_shared_nicknames(devices, own_names)
     commands: list[Command] = []
 
     for template, handler, params in _ANCHORED_COMMANDS:

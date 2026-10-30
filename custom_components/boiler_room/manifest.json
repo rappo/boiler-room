@@ -1,10 +1,12 @@
 {
   "domain": "boiler_room",
   "name": "Boiler Room",
-  "version": "2026.10.29.2",
+  "version": "2026.10.29.3",
   "documentation": "https://github.com/rappo/boiler-room",
   "issue_tracker": "https://github.com/rappo/boiler-room/issues",
-  "dependencies": [],
+  "dependencies": [
+    "conversation"
+  ],
   "requirements": [],
   "codeowners": [
     "@rappo"

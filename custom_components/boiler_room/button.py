@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import logging
-import socket
-import struct
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_DEVICE_ID, CONF_DEVICE_NAME, DOMAIN
+from .core.wol import send_magic_packet
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,7 +49,6 @@ async def async_setup_entry(
         BoilerRoomPowerButton(api, device_id, device_name, "Reboot", "reboot", "mdi:restart"),
         BoilerRoomRestartSteamButton(api, device_id, device_name),
         BoilerRoomWakeButton(coordinator, entry, device_id, device_name, stored_mac),
-        BoilerRoomCreateAutomationsButton(device_id, device_name),
     ]
 
     async_add_entities(entities)
@@ -186,54 +183,4 @@ class BoilerRoomWakeButton(ButtonEntity):
             return
 
         _LOGGER.info("Sending Wake-on-LAN to %s", mac)
-        await self.hass.async_add_executor_job(self._send_magic_packet, mac)
-
-    @staticmethod
-    def _send_magic_packet(mac: str) -> None:
-        """Send a WoL magic packet to the given MAC address."""
-        # Normalize MAC
-        mac_clean = mac.replace(":", "").replace("-", "")
-        if len(mac_clean) != 12:
-            raise ValueError(f"Invalid MAC address: {mac}")
-
-        # Build magic packet: 6x 0xFF + 16x MAC
-        mac_bytes = bytes.fromhex(mac_clean)
-        packet = b"\xff" * 6 + mac_bytes * 16
-
-        # Send via UDP broadcast
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            sock.sendto(packet, ("255.255.255.255", 9))
-            _LOGGER.info("WoL magic packet sent to %s", mac)
-
-
-class BoilerRoomCreateAutomationsButton(ButtonEntity):
-    """Button that creates the Boiler Room voice automations.
-
-    Writes pre-built automations to automations.yaml so they appear
-    in the HA UI as fully editable, standalone automations.
-    """
-
-    _attr_has_entity_name = True
-    _attr_name = "Create Voice Automations"
-    _attr_icon = "mdi:microphone-message"
-
-    def __init__(self, device_id: str, device_name: str) -> None:
-        """Initialize the button."""
-        self._device_id = device_id
-        self._attr_unique_id = f"{device_id}_create_voice_automations"
-
-    @property
-    def device_info(self):
-        """Return device information."""
-        return {"identifiers": {(DOMAIN, self._device_id)}}
-
-    async def async_press(self) -> None:
-        """Create the voice automations."""
-        from .automations import async_create_voice_automations
-
-        added = await async_create_voice_automations(self.hass)
-        if added > 0:
-            _LOGGER.info("Created %d voice automations", added)
-        else:
-            _LOGGER.info("Voice automations already exist")
+        await self.hass.async_add_executor_job(send_magic_packet, mac)
