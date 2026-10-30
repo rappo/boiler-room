@@ -1,93 +1,158 @@
-"""HA service handlers for Boiler Room.
+"""Boiler Room actions: plain handlers plus thin HA services over them.
 
-Exposes the integration's smart logic (fuzzy matching, Jellyfin search,
-phonetic cache, power control) as standard HA services that can be called
-from automations, scripts, and blueprints.
+Every handler is an async function taking ``hass``, its parameters and an
+optional ``entry_id`` (which device), and returns a dict with at least a
+``speech`` key. Two callers share them:
 
-All services return a dict with at minimum a 'speech' key containing a
-natural-language response suitable for set_conversation_response.
+- the sentence triggers in ``voice.py``, which know the entry from the
+  nickname that was spoken and return ``speech`` to Assist;
+- the ``boiler_room.*`` services below, which resolve their optional
+  ``device`` argument to an entry first and return the dict as the
+  service response.
 
-Pure logic lives in core/ (unit-tested without HA);
-this module only wires it to HA services.
+Pure logic (matching, Jellyfin requests, sentence templates) lives in
+``core/`` and is unit-tested without HA.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import quote_plus
 
 import voluptuous as vol
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import DOMAIN
+from .const import CONF_DEVICE_NAME, CONF_DEVICE_NICKNAMES, DOMAIN
 from .core import jellyfin
 from .core.matching import fuzzy_match_app, fuzzy_match_game, parse_app_aliases
+from .core.sentences import default_nicknames, match_device, parse_nicknames
+from .core.wol import send_magic_packet
 
 _LOGGER = logging.getLogger(__name__)
 
+Response = dict[str, Any]
+Handler = Callable[..., Awaitable[Response]]
 
-# ─── Context Helpers ───
+DEFAULT_JELLYFIN_APP = "org.jellyfin.JellyfinDesktop"
 
-
-def _get_device_context(
-    hass: HomeAssistant,
-) -> tuple[Any, list[dict], list[dict], dict[str, str] | None]:
-    """Get the API client, game list, app list, and aliases from the first available device."""
-    domain_data = hass.data.get(DOMAIN, {})
-    for entry_data in domain_data.values():
-        api = entry_data.get("api")
-        coordinator = entry_data.get("coordinator")
-        if api and coordinator and coordinator.data:
-            games = coordinator.data.get("games", [])
-            apps = coordinator.data.get("apps", [])
-            aliases = entry_data.get("aliases")
-            return api, games, apps, aliases
-    return None, [], [], None
+_POWER_LABELS = {"suspend": "Suspending", "shutdown": "Shutting down", "reboot": "Rebooting"}
+_PLAYSTATE_LABELS = {
+    "pause": "Paused",
+    "unpause": "Resumed",
+    "stop": "Stopped",
+    "rewind": "Rewinding",
+    "fastforward": "Fast-forwarding",
+}
 
 
-def _get_jellyfin_config(
-    hass: HomeAssistant,
-) -> dict[str, str] | None:
-    """Get Jellyfin config from the first config entry's options."""
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        jf_url = entry.options.get("jellyfin_url", "").strip()
-        jf_key = entry.options.get("jellyfin_api_key", "").strip()
-        if jf_url and jf_key:
-            return {
-                "url": jf_url.rstrip("/"),
-                "api_key": jf_key,
-                "app_id": entry.options.get("jellyfin_app_id", "org.jellyfin.JellyfinDesktop").strip(),
-                "youtube_app_id": entry.options.get("youtube_app_id", "").strip(),
-            }
-    return None
+# ─── Entries and targets ───
 
 
-def _get_jellyfin_cache(hass: HomeAssistant):
-    """Get the Jellyfin media cache from the first entry that has one."""
-    domain_data = hass.data.get(DOMAIN, {})
-    for entry_data in domain_data.values():
-        cache = entry_data.get("jellyfin_cache")
-        if cache:
-            return cache
-    return None
+def loaded_entries(hass: HomeAssistant) -> list[tuple[ConfigEntry, dict[str, Any]]]:
+    """Config entries that finished setup, with their hass.data records."""
+    records = hass.data.get(DOMAIN, {})
+    return [
+        (entry, records[entry.entry_id])
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.entry_id in records
+    ]
 
 
-def _get_app_aliases(hass: HomeAssistant) -> dict[str, str]:
-    """Get user-defined app aliases from the config entry options."""
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        aliases = parse_app_aliases(entry.options.get("app_aliases", ""))
-        if aliases:
-            return aliases
-    return {}
+def device_name(entry: ConfigEntry) -> str:
+    """The name the agent reported for this device."""
+    return entry.data.get(CONF_DEVICE_NAME) or entry.title or "the SteamOS device"
 
 
-def _resolve_query(hass: HomeAssistant, query: str) -> str:
-    """Run a voice query through the phonetic cache, if one is running."""
-    cache = _get_jellyfin_cache(hass)
+def entry_nicknames(entry: ConfigEntry) -> list[str]:
+    """Nicknames this device answers to; blank option means the defaults."""
+    configured = parse_nicknames(entry.options.get(CONF_DEVICE_NICKNAMES))
+    return configured or default_nicknames(device_name(entry))
+
+
+def device_names(hass: HomeAssistant) -> dict[str, list[str]]:
+    """Every name each loaded entry answers to, for resolving ``device``."""
+    return {
+        entry.entry_id: [*entry_nicknames(entry), device_name(entry), entry.title]
+        for entry, _ in loaded_entries(hass)
+    }
+
+
+def resolve_entry_id(hass: HomeAssistant, device: str | None) -> str | None:
+    """Map a spoken or typed device name to a loaded entry id."""
+    return match_device(device, device_names(hass))
+
+
+def _target(
+    hass: HomeAssistant, entry_id: str | None
+) -> tuple[ConfigEntry, dict[str, Any]] | None:
+    """The entry to act on: the one named, else the first that was reached."""
+    entries = loaded_entries(hass)
+    if entry_id is not None:
+        return next(((e, r) for e, r in entries if e.entry_id == entry_id), None)
+    for entry, record in entries:
+        if record["coordinator"].data:
+            return entry, record
+    return entries[0] if entries else None
+
+
+def _no_device() -> Response:
+    return {"speech": "No SteamOS device is connected."}
+
+
+def _unreachable(entry: ConfigEntry) -> Response:
+    return {"speech": f"{device_name(entry)} did not answer."}
+
+
+def _coordinator_list(record: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    data = record["coordinator"].data or {}
+    return data.get(key, [])
+
+
+# ─── Jellyfin helpers ───
+
+
+def _jellyfin_config(entry: ConfigEntry) -> dict[str, str] | None:
+    options = entry.options
+    jf_url = options.get("jellyfin_url", "").strip()
+    jf_key = options.get("jellyfin_api_key", "").strip()
+    if not jf_url or not jf_key:
+        return None
+    return {
+        "url": jf_url.rstrip("/"),
+        "api_key": jf_key,
+        "app_id": options.get("jellyfin_app_id", DEFAULT_JELLYFIN_APP).strip(),
+        "youtube_app_id": options.get("youtube_app_id", "").strip(),
+    }
+
+
+def _jellyfin_target(
+    hass: HomeAssistant, entry_id: str | None
+) -> tuple[ConfigEntry, dict[str, Any], dict[str, str]] | Response:
+    """The entry whose Jellyfin settings apply, or the speech saying why not."""
+    if entry_id is not None:
+        target = _target(hass, entry_id)
+        if target is None:
+            return _no_device()
+        config = _jellyfin_config(target[0])
+        if config is None:
+            return {"speech": f"Jellyfin is not configured for {device_name(target[0])}."}
+        return target[0], target[1], config
+    for entry, record in loaded_entries(hass):
+        config = _jellyfin_config(entry)
+        if config is not None:
+            return entry, record, config
+    return {"speech": "Jellyfin is not configured."}
+
+
+def _resolve_query(record: dict[str, Any], query: str) -> str:
+    """Run a voice query through the entry's phonetic cache, if running."""
+    cache = record.get("jellyfin_cache")
     if not cache:
         return query
     resolved_name, _ = cache.match_or_query(query)
@@ -97,17 +162,16 @@ def _resolve_query(hass: HomeAssistant, query: str) -> str:
 
 
 async def _find_or_launch_session(
-    hass: HomeAssistant, session, jf_url: str, jf_key: str, jf_app: str
+    record: dict[str, Any], session, config: dict[str, str]
 ) -> str | None:
     """Find a controllable Jellyfin session, launching the client app if needed."""
+    jf_url, jf_key, jf_app = config["url"], config["api_key"], config["app_id"]
     session_id = await jellyfin.find_session(session, jf_url, jf_key)
     if session_id:
         return session_id
-
-    api, _, _, _ = _get_device_context(hass)
-    if api and jf_app:
+    if jf_app:
         try:
-            await api.launch(appid=jf_app, launch_type="app")
+            await record["api"].launch(appid=jf_app, launch_type="app")
         except Exception:
             _LOGGER.warning("Could not launch Jellyfin app %s", jf_app)
         await asyncio.sleep(5)
@@ -115,196 +179,114 @@ async def _find_or_launch_session(
     return session_id
 
 
-# ─── Service Schemas ───
-
-LAUNCH_GAME_SCHEMA = vol.Schema({
-    vol.Required("name"): str,
-    vol.Optional("device"): str,
-})
-
-LAUNCH_APP_SCHEMA = vol.Schema({
-    vol.Required("name"): str,
-    vol.Optional("device"): str,
-})
-
-JELLYFIN_PLAY_SCHEMA = vol.Schema({
-    vol.Required("query"): str,
-    vol.Optional("type"): str,
-})
-
-JELLYFIN_BROWSE_SCHEMA = vol.Schema({
-    vol.Required("query"): str,
-    vol.Optional("type"): str,
-})
-
-JELLYFIN_CONTROL_SCHEMA = vol.Schema({
-    vol.Required("action"): vol.In(list(jellyfin.PLAYSTATE_COMMANDS)),
-})
-
-YOUTUBE_SEARCH_SCHEMA = vol.Schema({
-    vol.Required("query"): str,
-    vol.Optional("device"): str,
-})
-
-POWER_SCHEMA = vol.Schema({
-    vol.Required("action"): vol.In(["suspend", "shutdown", "reboot"]),
-    vol.Optional("device"): str,
-})
-
-WAKE_SCHEMA = vol.Schema({
-    vol.Optional("device"): str,
-})
-
-VOLUME_SCHEMA = vol.Schema({
-    vol.Required("level"): vol.All(int, vol.Range(min=0, max=100)),
-    vol.Optional("device"): str,
-})
+# ─── Launching ───
 
 
-# ─── Registration ───
+async def _launch_game_entry(
+    entry: ConfigEntry, record: dict[str, Any], game: dict[str, Any]
+) -> Response:
+    try:
+        result = await record["api"].launch(appid=game["appid"])
+    except Exception:
+        _LOGGER.warning("Launch of %s on %s failed", game["name"], device_name(entry))
+        return _unreachable(entry)
+    if result.get("status") == "launching":
+        return {
+            "speech": f"Launching {game['name']}.",
+            "matched_name": game["name"],
+            "appid": game["appid"],
+        }
+    return {"speech": f"Failed to launch {game['name']}."}
 
 
-def async_register_services(hass: HomeAssistant) -> None:
-    """Register all Boiler Room services."""
-    if hass.services.has_service(DOMAIN, "launch_game"):
-        return  # Already registered
-
-    for name, handler, schema in (
-        ("launch_game", _handle_launch_game, LAUNCH_GAME_SCHEMA),
-        ("launch_app", _handle_launch_app, LAUNCH_APP_SCHEMA),
-        ("jellyfin_play", _handle_jellyfin_play, JELLYFIN_PLAY_SCHEMA),
-        ("jellyfin_browse", _handle_jellyfin_browse, JELLYFIN_BROWSE_SCHEMA),
-        ("jellyfin_control", _handle_jellyfin_control, JELLYFIN_CONTROL_SCHEMA),
-        ("youtube_search", _handle_youtube_search, YOUTUBE_SEARCH_SCHEMA),
-        ("power", _handle_power, POWER_SCHEMA),
-        ("wake", _handle_wake, WAKE_SCHEMA),
-        ("set_volume", _handle_set_volume, VOLUME_SCHEMA),
-    ):
-        hass.services.async_register(
-            DOMAIN, name, handler,
-            schema=schema,
-            supports_response=SupportsResponse.OPTIONAL,
-        )
-
-    _LOGGER.info("Boiler Room services registered")
+async def _launch_app_entry(
+    entry: ConfigEntry, record: dict[str, Any], name: str, flatpak_id: str
+) -> Response:
+    try:
+        result = await record["api"].launch(appid=flatpak_id, launch_type="app")
+    except Exception:
+        _LOGGER.warning("Launch of %s on %s failed", flatpak_id, device_name(entry))
+        return _unreachable(entry)
+    if result.get("status") == "launching":
+        return {"speech": f"Opening {name}.", "matched_name": name, "app_id": flatpak_id}
+    return {"speech": f"Failed to open {name}."}
 
 
-def async_unregister_services(hass: HomeAssistant) -> None:
-    """Unregister services (called when last config entry is unloaded)."""
-    for svc in [
-        "launch_game", "launch_app", "jellyfin_play", "jellyfin_browse",
-        "jellyfin_control", "youtube_search", "power", "wake", "set_volume",
-    ]:
-        hass.services.async_remove(DOMAIN, svc)
-
-
-# ─── Service Handlers ───
-
-
-async def _handle_launch_game(call: ServiceCall) -> dict[str, Any]:
-    """Launch a game by name with fuzzy matching."""
-    hass = call.hass
-    name = call.data["name"]
-
-    api, games, apps, aliases = _get_device_context(hass)
-    if not api:
-        return {"speech": "No SteamOS device is connected."}
-
-    game = fuzzy_match_game(name, games, aliases)
-    if game:
-        result = await api.launch(appid=game["appid"])
-        if result.get("status") == "launching":
-            return {
-                "speech": f"Launching {game['name']}.",
-                "matched_name": game["name"],
-                "appid": game["appid"],
-            }
-        return {"speech": f"Failed to launch {game['name']}."}
-
-    # Fallback: try apps
-    app = fuzzy_match_app(name, apps)
+def _match_app(
+    entry: ConfigEntry, record: dict[str, Any], name: str
+) -> tuple[str, str] | None:
+    """(display name, flatpak id) from the entry's aliases, then installed apps."""
+    aliases = parse_app_aliases(entry.options.get("app_aliases", ""))
+    key = name.lower().strip()
+    if key in aliases:
+        return name, aliases[key]
+    app = fuzzy_match_app(name, _coordinator_list(record, "apps"))
     if app:
-        result = await api.launch(appid=app["id"], launch_type="app")
-        if result.get("status") == "launching":
-            return {
-                "speech": f"Opening {app['name']}.",
-                "matched_name": app["name"],
-                "app_id": app["id"],
-            }
-        return {"speech": f"Failed to open {app['name']}."}
+        return app["name"], app["id"]
+    return None
+
+
+async def launch_game(hass: HomeAssistant, name: str, *, entry_id: str | None = None) -> Response:
+    """Launch a game by name with fuzzy matching; falls back to apps."""
+    target = _target(hass, entry_id)
+    if target is None:
+        return _no_device()
+    entry, record = target
+
+    game = fuzzy_match_game(name, _coordinator_list(record, "games"))
+    if game:
+        return await _launch_game_entry(entry, record, game)
+
+    app = _match_app(entry, record, name)
+    if app:
+        return await _launch_app_entry(entry, record, *app)
 
     return {"speech": f"I couldn't find a game or app matching '{name}'."}
 
 
-async def _handle_launch_app(call: ServiceCall) -> dict[str, Any]:
-    """Launch an app by name with fuzzy matching and alias support."""
-    hass = call.hass
-    name = call.data["name"]
+async def launch_app(hass: HomeAssistant, name: str, *, entry_id: str | None = None) -> Response:
+    """Launch a Flatpak app by alias or name; falls back to games."""
+    target = _target(hass, entry_id)
+    if target is None:
+        return _no_device()
+    entry, record = target
 
-    api, games, apps, aliases = _get_device_context(hass)
-    if not api:
-        return {"speech": "No SteamOS device is connected."}
-
-    # Check user-defined app aliases from options
-    app_aliases = _get_app_aliases(hass)
-    name_lower = name.lower().strip()
-    if name_lower in app_aliases:
-        flatpak_id = app_aliases[name_lower]
-        result = await api.launch(appid=flatpak_id, launch_type="app")
-        if result.get("status") == "launching":
-            return {
-                "speech": f"Opening {name}.",
-                "matched_name": name,
-                "app_id": flatpak_id,
-            }
-        return {"speech": f"Failed to open {name}."}
-
-    # Fuzzy match against installed apps
-    app = fuzzy_match_app(name, apps)
+    app = _match_app(entry, record, name)
     if app:
-        result = await api.launch(appid=app["id"], launch_type="app")
-        if result.get("status") == "launching":
-            return {
-                "speech": f"Opening {app['name']}.",
-                "matched_name": app["name"],
-                "app_id": app["id"],
-            }
-        return {"speech": f"Failed to open {app['name']}."}
+        return await _launch_app_entry(entry, record, *app)
 
-    # Fallback: try games
-    game = fuzzy_match_game(name, games, aliases)
+    game = fuzzy_match_game(name, _coordinator_list(record, "games"))
     if game:
-        result = await api.launch(appid=game["appid"])
-        if result.get("status") == "launching":
-            return {
-                "speech": f"Launching {game['name']}.",
-                "matched_name": game["name"],
-                "appid": game["appid"],
-            }
-        return {"speech": f"Failed to launch {game['name']}."}
+        return await _launch_game_entry(entry, record, game)
 
-    hint = (
-        f"Couldn't find an app or game named {name}. "
-        "You can add an app alias in Settings > Integrations > Boiler Room > Configure."
-    )
-    return {"speech": hint}
+    return {
+        "speech": (
+            f"Couldn't find an app or game named {name}. "
+            "You can add an app alias in Settings > Integrations > Boiler Room > Configure."
+        )
+    }
 
 
-async def _handle_jellyfin_play(call: ServiceCall) -> dict[str, Any]:
+# ─── Jellyfin ───
+
+
+async def jellyfin_play(
+    hass: HomeAssistant,
+    query: str,
+    media_type: str | None = None,
+    *,
+    entry_id: str | None = None,
+) -> Response:
     """Search Jellyfin and play the top result."""
-    hass = call.hass
-    query = call.data["query"]
-    media_type = call.data.get("type")
-
-    jf_config = _get_jellyfin_config(hass)
-    if not jf_config:
-        return {"speech": "Jellyfin is not configured."}
-
-    jf_url, jf_key, jf_app = jf_config["url"], jf_config["api_key"], jf_config["app_id"]
+    target = _jellyfin_target(hass, entry_id)
+    if isinstance(target, dict):
+        return target
+    _entry, record, config = target
+    jf_url, jf_key = config["url"], config["api_key"]
     session = async_get_clientsession(hass)
 
     items = await jellyfin.search(
-        session, jf_url, jf_key, _resolve_query(hass, query), media_type
+        session, jf_url, jf_key, _resolve_query(record, query), media_type
     )
     if not items:
         hint = f" {media_type.lower()}" if media_type else ""
@@ -315,42 +297,37 @@ async def _handle_jellyfin_play(call: ServiceCall) -> dict[str, Any]:
     item_id = item.get("Id", "")
     item_type = item.get("Type", "")
     type_label = jellyfin.TYPE_LABELS.get(item_type, item_type.lower())
+    details = {"item_name": item_name, "item_id": item_id, "item_type": item_type}
 
-    session_id = await _find_or_launch_session(hass, session, jf_url, jf_key, jf_app)
-
+    session_id = await _find_or_launch_session(record, session, config)
     if session_id and item_id and await jellyfin.play(
         session, jf_url, jf_key, session_id, item_id
     ):
-        return {
-            "speech": f"Playing the {type_label} {item_name} on Jellyfin.",
-            "item_name": item_name,
-            "item_id": item_id,
-            "item_type": item_type,
-        }
+        return {"speech": f"Playing the {type_label} {item_name} on Jellyfin.", **details}
 
     return {
         "speech": f"Found the {type_label} {item_name}, but no active Jellyfin session.",
-        "item_name": item_name,
-        "item_id": item_id,
-        "item_type": item_type,
+        **details,
     }
 
 
-async def _handle_jellyfin_browse(call: ServiceCall) -> dict[str, Any]:
+async def jellyfin_browse(
+    hass: HomeAssistant,
+    query: str,
+    media_type: str | None = None,
+    *,
+    entry_id: str | None = None,
+) -> Response:
     """Search Jellyfin and navigate to the item's page."""
-    hass = call.hass
-    query = call.data["query"]
-    media_type = call.data.get("type")
-
-    jf_config = _get_jellyfin_config(hass)
-    if not jf_config:
-        return {"speech": "Jellyfin is not configured."}
-
-    jf_url, jf_key, jf_app = jf_config["url"], jf_config["api_key"], jf_config["app_id"]
+    target = _jellyfin_target(hass, entry_id)
+    if isinstance(target, dict):
+        return target
+    _entry, record, config = target
+    jf_url, jf_key = config["url"], config["api_key"]
     session = async_get_clientsession(hass)
 
     items = await jellyfin.search(
-        session, jf_url, jf_key, _resolve_query(hass, query),
+        session, jf_url, jf_key, _resolve_query(record, query),
         media_type or jellyfin.BROWSE_TYPES_DEFAULT,
     )
     if not items:
@@ -360,30 +337,24 @@ async def _handle_jellyfin_browse(call: ServiceCall) -> dict[str, Any]:
     item_name = item.get("Name", query)
     item_id = item.get("Id", "")
 
-    session_id = await _find_or_launch_session(hass, session, jf_url, jf_key, jf_app)
-
+    session_id = await _find_or_launch_session(record, session, config)
     if session_id and item_id and await jellyfin.view(
         session, jf_url, jf_key, session_id, item
     ):
-        return {
-            "speech": f"Showing {item_name} on Jellyfin.",
-            "item_name": item_name,
-            "item_id": item_id,
-        }
+        return {"speech": f"Showing {item_name} on Jellyfin.", "item_name": item_name, "item_id": item_id}
 
     return {"speech": f"Found {item_name}, but no active Jellyfin session."}
 
 
-async def _handle_jellyfin_control(call: ServiceCall) -> dict[str, Any]:
-    """Control Jellyfin playback (pause, resume, stop, rewind, fast-forward)."""
-    hass = call.hass
-    action = call.data["action"]
-
-    jf_config = _get_jellyfin_config(hass)
-    if not jf_config:
-        return {"speech": "Jellyfin is not configured."}
-
-    jf_url, jf_key = jf_config["url"], jf_config["api_key"]
+async def jellyfin_control(
+    hass: HomeAssistant, action: str, *, entry_id: str | None = None
+) -> Response:
+    """Control Jellyfin playback (pause, unpause, stop, rewind, fastforward)."""
+    target = _jellyfin_target(hass, entry_id)
+    if isinstance(target, dict):
+        return target
+    _entry, _record, config = target
+    jf_url, jf_key = config["url"], config["api_key"]
     session = async_get_clientsession(hass)
 
     session_id = await jellyfin.find_session(session, jf_url, jf_key)
@@ -391,80 +362,154 @@ async def _handle_jellyfin_control(call: ServiceCall) -> dict[str, Any]:
         return {"speech": "No active Jellyfin session found."}
 
     if await jellyfin.playstate(session, jf_url, jf_key, session_id, action):
-        labels = {
-            "pause": "Paused", "unpause": "Resumed", "stop": "Stopped",
-            "rewind": "Rewinding", "fastforward": "Fast-forwarding",
-        }
-        return {"speech": f"{labels[action]} Jellyfin playback."}
-
+        return {"speech": f"{_PLAYSTATE_LABELS[action]} Jellyfin playback."}
     return {"speech": f"Failed to {action} Jellyfin playback."}
 
 
-async def _handle_youtube_search(call: ServiceCall) -> dict[str, Any]:
-    """Open a YouTube search in the configured client app."""
-    hass = call.hass
-    query = call.data["query"]
+# ─── YouTube, power, volume ───
 
-    api, _, _, _ = _get_device_context(hass)
-    if not api:
-        return {"speech": "No SteamOS device is connected."}
 
-    jf_config = _get_jellyfin_config(hass)
-    youtube_app = jf_config.get("youtube_app_id", "") if jf_config else ""
-
+async def youtube_search(hass: HomeAssistant, query: str, *, entry_id: str | None = None) -> Response:
+    """Open a YouTube search in the configured client app (or the browser)."""
+    target = _target(hass, entry_id)
+    if target is None:
+        return _no_device()
+    entry, record = target
+    youtube_app = entry.options.get("youtube_app_id", "").strip()
     search_url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
 
-    if youtube_app:
-        await api.launch(appid=youtube_app, launch_type="app")
-        await asyncio.sleep(2)
-
-    await api.launch(url=search_url, launch_type="url")
+    try:
+        if youtube_app:
+            await record["api"].launch(appid=youtube_app, launch_type="app")
+            await asyncio.sleep(2)
+        await record["api"].launch(url=search_url, launch_type="url")
+    except Exception:
+        _LOGGER.warning("YouTube search on %s failed", device_name(entry))
+        return _unreachable(entry)
     return {"speech": f"Searching YouTube for {query}."}
 
 
-async def _handle_power(call: ServiceCall) -> dict[str, Any]:
-    """Execute a power action."""
-    hass = call.hass
-    action = call.data["action"]
-
-    api, _, _, _ = _get_device_context(hass)
-    if not api:
-        return {"speech": "No SteamOS device is connected."}
-
-    labels = {"suspend": "Suspending", "shutdown": "Shutting down", "reboot": "Rebooting"}
-    await api.power_action(action)
-    return {"speech": f"{labels[action]} the SteamOS device."}
-
-
-async def _handle_wake(call: ServiceCall) -> dict[str, Any]:
-    """Send Wake-on-LAN magic packet."""
-    hass = call.hass
-
-    from homeassistant.helpers import entity_registry as er
-    registry = er.async_get(hass)
-
-    wol_entity_id = None
-    for entity in registry.entities.values():
-        if entity.domain == "button" and entity.platform == DOMAIN:
-            if entity.unique_id.endswith("_wake_on_lan"):
-                wol_entity_id = entity.entity_id
-                break
-
-    if not wol_entity_id:
-        return {"speech": "No Wake-on-LAN button found."}
-
-    await hass.services.async_call("button", "press", {"entity_id": wol_entity_id})
-    return {"speech": "Sending wake-up signal to the SteamOS device."}
+async def power(hass: HomeAssistant, action: str, *, entry_id: str | None = None) -> Response:
+    """Suspend, shut down or reboot the device."""
+    target = _target(hass, entry_id)
+    if target is None:
+        return _no_device()
+    entry, record = target
+    try:
+        await record["api"].power_action(action)
+    except Exception:
+        _LOGGER.warning("Power action %s on %s failed", action, device_name(entry))
+        return _unreachable(entry)
+    return {"speech": f"{_POWER_LABELS[action]} {device_name(entry)}."}
 
 
-async def _handle_set_volume(call: ServiceCall) -> dict[str, Any]:
-    """Set system volume."""
-    hass = call.hass
-    level = call.data["level"]
+async def wake(hass: HomeAssistant, *, entry_id: str | None = None) -> Response:
+    """Send a Wake-on-LAN magic packet to the device's last known MAC."""
+    target = _target(hass, entry_id)
+    if target is None:
+        return _no_device()
+    entry, record = target
+    status = (record["coordinator"].data or {}).get("status", {})
+    mac = entry.data.get("mac_address") or status.get("mac_address")
+    if not mac:
+        return {
+            "speech": (
+                f"I don't know the MAC address of {device_name(entry)} yet. "
+                "It is learned the first time the device is online."
+            )
+        }
+    await hass.async_add_executor_job(send_magic_packet, mac)
+    return {"speech": f"Sending a wake-up signal to {device_name(entry)}.", "mac_address": mac}
 
-    api, _, _, _ = _get_device_context(hass)
-    if not api:
-        return {"speech": "No SteamOS device is connected."}
 
-    await api.set_volume(level)
+async def set_volume(hass: HomeAssistant, level: int, *, entry_id: str | None = None) -> Response:
+    """Set the system volume (0-100)."""
+    target = _target(hass, entry_id)
+    if target is None:
+        return _no_device()
+    entry, record = target
+    try:
+        await record["api"].set_volume(level)
+    except Exception:
+        _LOGGER.warning("Volume change on %s failed", device_name(entry))
+        return _unreachable(entry)
     return {"speech": f"Volume set to {level} percent."}
+
+
+# ─── HA services ───
+
+_DEVICE_FIELD = {vol.Optional("device"): str}
+
+_SERVICES: tuple[tuple[str, Handler, vol.Schema, dict[str, str]], ...] = (
+    # service name, handler, schema, service field -> handler keyword
+    ("launch_game", launch_game, vol.Schema({vol.Required("name"): str, **_DEVICE_FIELD}), {"name": "name"}),
+    ("launch_app", launch_app, vol.Schema({vol.Required("name"): str, **_DEVICE_FIELD}), {"name": "name"}),
+    (
+        "jellyfin_play",
+        jellyfin_play,
+        vol.Schema({vol.Required("query"): str, vol.Optional("type"): str, **_DEVICE_FIELD}),
+        {"query": "query", "type": "media_type"},
+    ),
+    (
+        "jellyfin_browse",
+        jellyfin_browse,
+        vol.Schema({vol.Required("query"): str, vol.Optional("type"): str, **_DEVICE_FIELD}),
+        {"query": "query", "type": "media_type"},
+    ),
+    (
+        "jellyfin_control",
+        jellyfin_control,
+        vol.Schema({vol.Required("action"): vol.In(list(jellyfin.PLAYSTATE_COMMANDS)), **_DEVICE_FIELD}),
+        {"action": "action"},
+    ),
+    ("youtube_search", youtube_search, vol.Schema({vol.Required("query"): str, **_DEVICE_FIELD}), {"query": "query"}),
+    (
+        "power",
+        power,
+        vol.Schema({vol.Required("action"): vol.In(list(_POWER_LABELS)), **_DEVICE_FIELD}),
+        {"action": "action"},
+    ),
+    ("wake", wake, vol.Schema(_DEVICE_FIELD), {}),
+    (
+        "set_volume",
+        set_volume,
+        vol.Schema({vol.Required("level"): vol.All(int, vol.Range(min=0, max=100)), **_DEVICE_FIELD}),
+        {"level": "level"},
+    ),
+)
+
+
+def _service_handler(handler: Handler, fields: dict[str, str]):
+    async def _handle(call: ServiceCall) -> Response:
+        hass = call.hass
+        entry_id = None
+        device = call.data.get("device")
+        if device:
+            entry_id = resolve_entry_id(hass, device)
+            if entry_id is None:
+                return {"speech": f"I don't know a device called {device}."}
+        kwargs = {kw: call.data[field] for field, kw in fields.items() if field in call.data}
+        return await handler(hass, entry_id=entry_id, **kwargs)
+
+    return _handle
+
+
+def async_register_services(hass: HomeAssistant) -> None:
+    """Register the boiler_room.* services once."""
+    if hass.services.has_service(DOMAIN, _SERVICES[0][0]):
+        return
+    for name, handler, schema, fields in _SERVICES:
+        hass.services.async_register(
+            DOMAIN,
+            name,
+            _service_handler(handler, fields),
+            schema=schema,
+            supports_response=SupportsResponse.OPTIONAL,
+        )
+    _LOGGER.info("Boiler Room services registered")
+
+
+def async_unregister_services(hass: HomeAssistant) -> None:
+    """Remove the services (when the last config entry is unloaded)."""
+    for name, *_ in _SERVICES:
+        hass.services.async_remove(DOMAIN, name)

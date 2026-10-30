@@ -11,7 +11,7 @@ launch_game:
         text:
     device:
       name: Device
-      description: Target device (optional, uses first available).
+      description: Target device by name or voice nickname (optional, defaults to the first device that was reached).
       required: false
       selector:
         text:
@@ -29,7 +29,7 @@ launch_app:
         text:
     device:
       name: Device
-      description: Target device (optional, uses first available).
+      description: Target device by name or voice nickname (optional, defaults to the first device that was reached).
       required: false
       selector:
         text:
@@ -58,6 +58,12 @@ jellyfin_play:
             - "Audio"
             - "MusicAlbum"
             - "Episode"
+    device:
+      name: Device
+      description: Target device by name or voice nickname (optional, defaults to the first device that was reached).
+      required: false
+      selector:
+        text:
 
 jellyfin_browse:
   name: Jellyfin Browse
@@ -84,6 +90,12 @@ jellyfin_browse:
             - "MusicArtist"
             - "Person"
             - "Episode"
+    device:
+      name: Device
+      description: Target device by name or voice nickname (optional, defaults to the first device that was reached).
+      required: false
+      selector:
+        text:
 
 jellyfin_control:
   name: Jellyfin Control
@@ -101,6 +113,12 @@ jellyfin_control:
             - "stop"
             - "rewind"
             - "fastforward"
+    device:
+      name: Device
+      description: Target device by name or voice nickname (optional, defaults to the first device that was reached).
+      required: false
+      selector:
+        text:
 
 youtube_search:
   name: YouTube Search
@@ -115,7 +133,7 @@ youtube_search:
         text:
     device:
       name: Device
-      description: Target device (optional).
+      description: Target device by name or voice nickname (optional, defaults to the first device that was reached).
       required: false
       selector:
         text:
@@ -136,7 +154,7 @@ power:
             - "reboot"
     device:
       name: Device
-      description: Target device (optional).
+      description: Target device by name or voice nickname (optional, defaults to the first device that was reached).
       required: false
       selector:
         text:
@@ -147,7 +165,7 @@ wake:
   fields:
     device:
       name: Device
-      description: Target device (optional).
+      description: Target device by name or voice nickname (optional, defaults to the first device that was reached).
       required: false
       selector:
         text:
@@ -168,7 +186,7 @@ set_volume:
           step: 1
     device:
       name: Device
-      description: Target device (optional).
+      description: Target device by name or voice nickname (optional, defaults to the first device that was reached).
       required: false
       selector:
         text:

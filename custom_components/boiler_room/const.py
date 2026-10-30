@@ -16,3 +16,6 @@ ZEROCONF_TYPE = "_boiler-room._tcp.local."
 
 # Update interval (seconds)
 SCAN_INTERVAL = 15
+
+# Options: comma-separated names a device answers to in voice commands.
+CONF_DEVICE_NICKNAMES = "device_nicknames"
