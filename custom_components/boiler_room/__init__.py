@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import timedelta
 from typing import Any
@@ -11,6 +12,7 @@ import aiohttp
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -21,11 +23,20 @@ _LOGGER = logging.getLogger(__name__)
 
 type BoilerRoomConfigEntry = ConfigEntry
 
-# WebSocket reconnect parameters
+# WebSocket reconnect parameters. The cap stays low on purpose: after the
+# machine wakes, HA only notices once the socket reconnects, so a 30 s cap
+# meant up to 30 s of stale "sleep". (Regressed to 30 once by accident in
+# a1ccd82; keep this at 5.)
 _WS_INITIAL_RETRY = 2  # seconds
-_WS_MAX_RETRY = 30  # seconds
-_STORAGE_KEY = f"{DOMAIN}.power_state"
+_WS_MAX_RETRY = 5  # seconds
+_WS_RECEIVE_TIMEOUT = 120  # seconds without a frame (agent pings every 30)
+_WS_CLOSE_TIMEOUT = 10  # seconds
+
 _STORAGE_VERSION = 1
+# Pre-2026.10.29 store: one file shared by every device. Migrated on load.
+_LEGACY_STORAGE_KEY = f"{DOMAIN}.power_state"
+
+POWER_STATE_ON = "on"
 
 
 async def async_setup_entry(
@@ -33,30 +44,27 @@ async def async_setup_entry(
 ) -> bool:
     """Set up Boiler Room from a config entry.
 
-    The setup succeeds even when the device is offline — WoL and
+    The setup succeeds even when the device is offline: WoL and
     Create Voice Automations buttons must always be available.
     The coordinator polls in the background and entities that need
-    live data will show as unavailable until the device comes online.
+    live data show as unavailable until the device comes online.
     """
     host = entry.data[CONF_HOST]
     port = entry.data[CONF_PORT]
 
     api = BoilerRoomAPI(host, port)
+    coordinator = BoilerRoomCoordinator(hass, api, entry)
 
-    coordinator = BoilerRoomCoordinator(hass, api, host, port)
-
-    # Restore last known power state from disk BEFORE the first poll.
-    # If the device is sleeping and HA just restarted, this ensures
-    # the sensor shows "sleep" instead of defaulting to "on".
+    # Restore the last known power state from disk BEFORE the first poll.
+    # If the device is sleeping and HA just restarted, the sensor must show
+    # "sleep" instead of "unknown" even though every poll will fail.
     await coordinator.async_load_persisted_state()
 
-    # Try to fetch initial data, but don't fail setup if device is offline.
-    # This is critical: WoL needs to work when the device is suspended/off.
     try:
         await coordinator.async_config_entry_first_refresh()
     except Exception:
         _LOGGER.warning(
-            "Could not reach %s:%s on startup — will keep retrying. "
+            "Could not reach %s:%s on startup; will keep retrying. "
             "WoL and Create Voice Automations are still available.",
             host, port,
         )
@@ -67,21 +75,15 @@ async def async_setup_entry(
         "coordinator": coordinator,
     }
 
-    # Start Jellyfin media cache if configured
     await _start_jellyfin_cache(hass, entry)
 
-    # Restart cache when options change (Jellyfin URL, cache toggles, etc.)
-    entry.async_on_unload(
-        entry.add_update_listener(_async_options_updated)
-    )
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register HA services (callable from automations/blueprints)
     from .services import async_register_services
     async_register_services(hass)
 
-    # Start WebSocket listener for real-time power state updates
     ws_task = hass.async_create_background_task(
         coordinator.async_start_websocket(),
         f"boiler_room_ws_{entry.entry_id}",
@@ -102,7 +104,6 @@ async def async_unload_entry(
         api: BoilerRoomAPI = data["api"]
         await api.close()
 
-        # Cancel the WebSocket listener
         ws_task = data.get("ws_task")
         if ws_task and not ws_task.done():
             ws_task.cancel()
@@ -111,7 +112,6 @@ async def async_unload_entry(
             except asyncio.CancelledError:
                 pass
 
-        # Stop the Jellyfin cache if running
         cache = data.get("jellyfin_cache")
         if cache:
             await cache.stop()
@@ -122,18 +122,16 @@ async def async_unload_entry(
 async def _async_options_updated(
     hass: HomeAssistant, entry: BoilerRoomConfigEntry
 ) -> None:
-    """Handle options update — restart Jellyfin cache with new settings."""
+    """Handle options update: restart the Jellyfin cache with new settings."""
     entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
     if not entry_data:
         return
 
-    # Stop existing cache
     old_cache = entry_data.get("jellyfin_cache")
     if old_cache:
         await old_cache.stop()
         entry_data["jellyfin_cache"] = None
 
-    # Start new cache with updated options
     await _start_jellyfin_cache(hass, entry)
 
 
@@ -148,24 +146,20 @@ async def _start_jellyfin_cache(
     if not jf_url or not jf_key:
         return
 
-    cache_artists = options.get("cache_artists", True)
-    cache_albums = options.get("cache_albums", True)
-
-    if not cache_artists and not cache_albums:
-        return
-
-    # Build the list of Jellyfin item types to cache
     cache_types: list[str] = []
-    if cache_artists:
+    if options.get("cache_artists", True):
         cache_types.append("MusicArtist")
-    if cache_albums:
+    if options.get("cache_albums", True):
         cache_types.append("MusicAlbum")
+    if not cache_types:
+        return
 
     refresh_minutes = options.get("cache_interval", 30)
 
-    from .jellyfin_cache import JellyfinMediaCache
+    from .core.jellyfin_cache import JellyfinMediaCache
 
     cache = JellyfinMediaCache(
+        session=async_get_clientsession(hass),
         jf_url=jf_url,
         jf_key=jf_key,
         cache_types=cache_types,
@@ -185,16 +179,39 @@ async def _start_jellyfin_cache(
         _LOGGER.exception("Failed to start Jellyfin media cache")
 
 
+def _empty_data() -> dict[str, Any]:
+    """Coordinator data shape with nothing in it (device never reached)."""
+    return {
+        "status": {},
+        "games": [],
+        "apps": [],
+        "sensors": {},
+        "shortcuts": [],
+        "users": {},
+    }
+
+
 class BoilerRoomCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator to fetch data from the Boiler Room agent.
 
-    Combines HTTP polling (fallback, every SCAN_INTERVAL seconds) with a
-    persistent WebSocket connection that receives instant push updates
-    for power state changes and other real-time events.
+    Combines HTTP polling (every SCAN_INTERVAL seconds) with a persistent
+    WebSocket connection that pushes power state changes instantly.
+
+    Power state model:
+    - A successful poll is authoritative: the agent reports its own
+      power_state in /status (it knows about a pending suspend before
+      the machine goes down).
+    - A WebSocket event overwrites the power_state in the current data
+      and notifies entities immediately.
+    - Failed polls leave the data untouched, so the last pushed state
+      ("sleep", "shutdown") survives while the machine is unreachable.
+    - The last state is persisted per config entry and seeded back into
+      the data on startup, so an HA restart while the machine sleeps
+      still shows "sleep".
     """
 
     def __init__(
-        self, hass: HomeAssistant, api: BoilerRoomAPI, host: str, port: int
+        self, hass: HomeAssistant, api: BoilerRoomAPI, entry: ConfigEntry
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -204,170 +221,157 @@ class BoilerRoomCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=SCAN_INTERVAL),
         )
         self.api = api
-        self._host = host
-        self._port = port
-        self._ws_connected = False
-        self._store = Store(hass, _STORAGE_VERSION, _STORAGE_KEY)
-        # Holds the last power state pushed via WebSocket, so HTTP poll
-        # failures don't overwrite it back to stale data.
-        self._ws_power_state: str | None = None
+        self._host = entry.data[CONF_HOST]
+        self._port = entry.data[CONF_PORT]
+        self._store = Store(
+            hass, _STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.power_state"
+        )
+        self._legacy_store = Store(hass, _STORAGE_VERSION, _LEGACY_STORAGE_KEY)
+        # Last power state written to disk; writes only happen on change.
+        self._persisted_power_state: str | None = None
+
+    # ─── Power state ───
+
+    @property
+    def power_state(self) -> str | None:
+        """Current power state from coordinator data, if any."""
+        if self.data:
+            return self.data.get("status", {}).get("power_state")
+        return None
 
     async def async_load_persisted_state(self) -> None:
-        """Load the last known power state from disk.
+        """Seed the power state from disk before the first poll.
 
-        Called during setup so that if HA restarts while the device is
-        sleeping, the sensor shows 'sleep' instead of defaulting to 'on'.
+        Without this seed the sensor shows "unknown" after an HA restart
+        while the device is asleep: every poll fails, so coordinator data
+        never exists for the sensor to read.
         """
         stored = await self._store.async_load()
-        if stored and isinstance(stored, dict):
-            last_state = stored.get("power_state")
-            if last_state and last_state != "on":
-                _LOGGER.info(
-                    "Restoring persisted power state: %s", last_state
-                )
-                self._ws_power_state = last_state
+        if stored is None:
+            stored = await self._legacy_store.async_load()
+            if stored is not None:
+                await self._legacy_store.async_remove()
 
-    async def _async_save_power_state(self, state: str) -> None:
-        """Persist the power state to disk."""
-        await self._store.async_save({"power_state": state})
+        state = stored.get("power_state") if isinstance(stored, dict) else None
+        if not state:
+            return
+
+        self._persisted_power_state = state
+        if state != POWER_STATE_ON:
+            _LOGGER.info("Restoring persisted power state: %s", state)
+            self.async_set_updated_data(self._with_power_state(state))
+
+    def _with_power_state(self, state: str) -> dict[str, Any]:
+        """Return a copy of the current data with power_state replaced."""
+        data = dict(self.data) if self.data else _empty_data()
+        status = dict(data.get("status") or {})
+        status["power_state"] = state
+        data["status"] = status
+        return data
+
+    def _persist_power_state(self, state: str) -> None:
+        """Write the power state to disk if it changed since the last write."""
+        if state == self._persisted_power_state:
+            return
+        self._persisted_power_state = state
+        self.hass.async_create_task(self._store.async_save({"power_state": state}))
+
+    def _apply_pushed_power_state(self, state: str) -> None:
+        """Apply a power state received over the WebSocket."""
+        _LOGGER.info("WebSocket: power state changed -> %s", state)
+        self._persist_power_state(state)
+        self.async_set_updated_data(self._with_power_state(state))
+
+    # ─── Polling ───
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch data from the agent via HTTP.
-
-        If the device is unreachable (sleeping/off), preserve the
-        WebSocket-pushed power state instead of letting it revert.
-        """
+        """Fetch data from the agent via HTTP."""
         try:
             status = await self.api.get_status()
             games = await self.api.get_games()
             apps = await self.api.get_apps()
             sensors = await self.api.get_sensors()
             shortcuts = await self.api.get_shortcuts()
-            # Fetch Steam users (optional — agent may not support it yet)
+            # Steam users are optional (older agents do not have the endpoint).
             try:
                 users = await self.api.get_users()
             except Exception:
                 users = {}
-            result = {
-                "status": status,
-                "games": games,
-                "apps": apps,
-                "sensors": sensors,
-                "shortcuts": shortcuts,
-                "users": users,
-            }
-            # Successful poll — device is online. Clear the WS override
-            # and persist "on" so HA restart doesn't show stale "sleep".
-            if self._ws_power_state is not None:
-                self._ws_power_state = None
-                self.hass.async_create_task(
-                    self._async_save_power_state("on")
-                )
-            return result
         except Exception as err:
-            # Device unreachable. If the WebSocket already pushed a power
-            # state (e.g. "sleep" or "shutdown"), preserve it in the
-            # existing coordinator data so entities see the correct state.
-            if self._ws_power_state and self.data:
-                status = dict(self.data.get("status", {}))
-                status["power_state"] = self._ws_power_state
-                self.data["status"] = status
+            # Device unreachable (sleeping, off, rebooting). Data is left as
+            # is, so the last pushed power state stays visible.
             raise UpdateFailed(f"Error communicating with agent: {err}") from err
+
+        self._persist_power_state(status.get("power_state", POWER_STATE_ON))
+        return {
+            "status": status,
+            "games": games,
+            "apps": apps,
+            "sensors": sensors,
+            "shortcuts": shortcuts,
+            "users": users,
+        }
+
+    # ─── WebSocket ───
 
     async def async_start_websocket(self) -> None:
         """Connect to the agent WebSocket and listen for real-time events.
 
-        Automatically reconnects with exponential backoff on disconnect.
-        Runs as a background task for the lifetime of the config entry.
+        Reconnects with exponential backoff (capped at _WS_MAX_RETRY) for
+        the lifetime of the config entry.
         """
         retry_delay = _WS_INITIAL_RETRY
         ws_url = f"ws://{self._host}:{self._port}/api/v1/ws"
+        session = async_get_clientsession(self.hass)
+        ws_timeout = aiohttp.ClientWSTimeout(
+            ws_receive=_WS_RECEIVE_TIMEOUT, ws_close=_WS_CLOSE_TIMEOUT
+        )
 
         while True:
             try:
-                session = aiohttp.ClientSession()
-                try:
-                    async with session.ws_connect(
-                        ws_url,
-                        heartbeat=30,
-                        timeout=aiohttp.ClientWSTimeout(ws_close=10),
-                        receive_timeout=120,
-                    ) as ws:
-                        self._ws_connected = True
-                        retry_delay = _WS_INITIAL_RETRY
-                        _LOGGER.info(
-                            "WebSocket connected to %s", ws_url
-                        )
+                async with session.ws_connect(
+                    ws_url, heartbeat=30, timeout=ws_timeout
+                ) as ws:
+                    retry_delay = _WS_INITIAL_RETRY
+                    _LOGGER.info("WebSocket connected to %s", ws_url)
 
-                        async for msg in ws:
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                await self._handle_ws_message(msg.data)
-                            elif msg.type in (
-                                aiohttp.WSMsgType.CLOSED,
-                                aiohttp.WSMsgType.ERROR,
-                            ):
-                                break
-                finally:
-                    await session.close()
+                    async for msg in ws:
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            self._handle_ws_message(msg.data)
+                        elif msg.type in (
+                            aiohttp.WSMsgType.CLOSED,
+                            aiohttp.WSMsgType.ERROR,
+                        ):
+                            break
 
             except asyncio.CancelledError:
                 _LOGGER.debug("WebSocket listener cancelled")
-                self._ws_connected = False
                 return
 
             except Exception as err:
                 _LOGGER.debug(
-                    "WebSocket connection to %s failed: %s — retrying in %ds",
+                    "WebSocket connection to %s failed: %s; retrying in %ds",
                     ws_url, err, retry_delay,
                 )
 
-            self._ws_connected = False
-
-            # Wait before reconnecting (exponential backoff)
             try:
                 await asyncio.sleep(retry_delay)
             except asyncio.CancelledError:
                 return
             retry_delay = min(retry_delay * 2, _WS_MAX_RETRY)
 
-    async def _handle_ws_message(self, raw: str) -> None:
+    def _handle_ws_message(self, raw: str) -> None:
         """Process an incoming WebSocket message from the agent."""
-        import json
-
         try:
             event = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             _LOGGER.debug("WebSocket: ignoring malformed message: %s", raw[:200])
             return
 
-        event_type = event.get("type")
+        if not isinstance(event, dict):
+            return
 
-        if event_type == "power_state_changed":
-            data = event.get("data", {})
-            new_state = data.get("power_state")
+        if event.get("type") == "power_state_changed":
+            new_state = (event.get("data") or {}).get("power_state")
             if new_state:
-                _LOGGER.info(
-                    "WebSocket: power state changed → %s", new_state
-                )
-                self._ws_power_state = new_state
-                # Persist to disk so it survives HA restarts
-                self.hass.async_create_task(
-                    self._async_save_power_state(new_state)
-                )
-                # Immediately update coordinator data so entities reflect
-                # the new state without waiting for the next HTTP poll.
-                if self.data:
-                    status = dict(self.data.get("status", {}))
-                    status["power_state"] = new_state
-                    updated = dict(self.data)
-                    updated["status"] = status
-                    self.async_set_updated_data(updated)
-                else:
-                    # No data yet — create minimal data so the sensor works
-                    self.async_set_updated_data({
-                        "status": {"power_state": new_state},
-                        "games": [],
-                        "apps": [],
-                        "sensors": {},
-                        "shortcuts": [],
-                    })
+                self._apply_pushed_power_state(new_state)
