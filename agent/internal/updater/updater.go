@@ -48,8 +48,18 @@ func NewUpdater(repoURL, currentVersion string) *Updater {
 	}
 }
 
+// Enabled reports whether update checks make sense: a repo URL is
+// configured and this is a tagged build (local builds report "dev" and
+// would otherwise see every release as an update).
+func (u *Updater) Enabled() bool {
+	return u.repoURL != "" && u.currentVersion != "dev"
+}
+
 // CheckForUpdate queries the releases API and returns the latest version, or empty if current.
 func (u *Updater) CheckForUpdate() (string, error) {
+	if !u.Enabled() {
+		return "", fmt.Errorf("updater disabled (repo_url=%q, version=%q)", u.repoURL, u.currentVersion)
+	}
 	apiURL := u.repoURL + "/releases/latest"
 	// Try GitHub API first, then raw endpoint
 	if strings.Contains(u.repoURL, "github.com") {
@@ -173,6 +183,10 @@ func (u *Updater) Update() error {
 
 // StartPeriodicCheck begins background update checks.
 func (u *Updater) StartPeriodicCheck() {
+	if !u.Enabled() {
+		log.Printf("Updater: disabled (repo_url=%q, version=%q)", u.repoURL, u.currentVersion)
+		return
+	}
 	go func() {
 		// Wait a bit after startup before first check
 		time.Sleep(5 * time.Minute)
@@ -199,6 +213,12 @@ func (u *Updater) Info() map[string]interface{} {
 	info := map[string]interface{}{
 		"current_version": u.currentVersion,
 		"binary_path":     u.binaryPath,
+	}
+
+	if !u.Enabled() {
+		info["update_available"] = false
+		info["update_check"] = "disabled"
+		return info
 	}
 
 	newVersion, err := u.CheckForUpdate()

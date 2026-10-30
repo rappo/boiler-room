@@ -17,7 +17,9 @@ import (
 	"github.com/rappo/boiler-room/agent/internal/updater"
 )
 
-var version = "0.4.0"
+// version is stamped by the release build (-ldflags "-X main.version=v0.5.3").
+// A local build reports "dev" rather than a stale number.
+var version = "dev"
 
 func main() {
 	showVersion := flag.Bool("version", false, "Print version and exit")
