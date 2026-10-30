@@ -35,10 +35,13 @@ jobs:
         working-directory: ./agent
         run: go test ./...
 
+      # Must satisfy the Requires-Python of the current pytest-homeassistant-custom-component
+      # (3.14 since HA 2026.3). On an older Python, pip does not fail: it quietly resolves the
+      # last harness release that supports it, and the tests run against a stale HA.
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Integration unit tests
         run: |
