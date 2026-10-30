@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -89,8 +92,13 @@ func NewServer(scanner *games.Scanner, sysInfo *system.Info, pluginMgr *plugins.
 	return s
 }
 
-// Start begins serving HTTP requests. Blocks until the server is stopped.
-func (s *Server) Start() error {
+// shutdownGrace is how long in-flight requests get after a stop signal.
+// The installed unit has TimeoutStopSec=3, so this stays under it.
+const shutdownGrace = 2 * time.Second
+
+// Start begins serving HTTP requests. It blocks until ctx is cancelled,
+// then shuts the server down gracefully, or until serving fails.
+func (s *Server) Start(ctx context.Context) error {
 	// Wire up power state WebSocket broadcast now that the hub is ready
 	if s.powerState != nil {
 		s.powerState.SetOnChange(func(state string) {
@@ -144,17 +152,45 @@ func (s *Server) Start() error {
 	handler := s.corsMiddleware(s.loggingMiddleware(mux))
 
 	addr := fmt.Sprintf(":%d", s.port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
 	log.Printf("API server listening on %s", addr)
 
 	server := &http.Server{
-		Addr:         addr,
 		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	return server.ListenAndServe()
+	return serveUntilCancelled(ctx, server, ln)
+}
+
+// serveUntilCancelled serves on ln until ctx is done, then shuts srv down
+// with shutdownGrace for in-flight requests. A clean stop returns nil.
+// Hijacked WebSocket connections are closed by their own goroutines.
+func serveUntilCancelled(ctx context.Context, srv *http.Server, ln net.Listener) error {
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Serve(ln) }()
+
+	select {
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		log.Println("API server: shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			srv.Close()
+		}
+		<-errCh
+		return nil
+	}
 }
 
 // --- Status ---

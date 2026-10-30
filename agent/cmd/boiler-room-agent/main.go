@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/rappo/boiler-room/agent/internal/api"
 	"github.com/rappo/boiler-room/agent/internal/config"
@@ -95,6 +98,12 @@ func main() {
 		log.Printf("Warning: DBus power state listener failed: %v (power state detection disabled)", err)
 	}
 
+	// SIGTERM (systemctl stop) and SIGINT end the agent cleanly. Until
+	// 2026-10-29 only the mDNS goroutine listened for them, so the HTTP
+	// server kept running and systemd had to SIGKILL the process.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	// Start mDNS advertisement
 	stopMDNS, err := discovery.Advertise(cfg.DeviceName, cfg.APIPort, sysInfo.DeviceID, version)
 	if err != nil {
@@ -103,7 +112,10 @@ func main() {
 		defer stopMDNS()
 	}
 
-	// Start HTTP API server (blocks)
+	// Start HTTP API server (blocks until a signal arrives)
 	server := api.NewServer(scanner, sysInfo, pluginMgr, upd, powerState, cfg.APIPort, cfg.DeviceName, version)
-	log.Fatal(server.Start())
+	if err := server.Start(ctx); err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Boiler Room Agent stopped")
 }
