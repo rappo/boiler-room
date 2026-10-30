@@ -66,7 +66,7 @@ One device per agent, with these entities:
 
 ## Voice commands
 
-Say these to any Assist endpoint: a voice satellite, the companion app, or the Assist text box. The integration registers them as a conversation trigger, the same mechanism HA automations use, so they only fire with the Home Assistant conversation agent (an LLM agent set to never use HA intents will not see them).
+Say these to any Assist endpoint: a voice satellite, the companion app, or the Assist text box. The integration registers them as a conversation trigger, the same mechanism HA automations use. An Assist pipeline checks sentence triggers before it hands the text to its conversation agent, so they fire with every pipeline, including one that uses an LLM agent.
 
 `<device>` is any of the device's voice nicknames. With one device you can leave it out ("Launch Balatro", "Set volume to 30"). With several, name one ("Launch Balatro on the living room pc"); a sentence without a device, or a nickname two devices share, makes Assist ask which one you mean.
 
@@ -172,7 +172,7 @@ A WebSocket event looks like `{"type": "power_state_changed", "timestamp": 17165
 
 ## Troubleshooting
 
-**A sentence is not recognized.** Check the device is loaded under Settings → Devices & services and that Assist uses the Home Assistant conversation agent. If the sentence names the device, the word must be one of its voice nicknames. Settings → Voice assistants → Assist → Debug shows which trigger a sentence would match without running it. Debug logging for `custom_components.boiler_room` shows the registered sentences and which handler each command reached.
+**A sentence is not recognized.** Check the device is loaded under Settings → Devices & services. If the sentence names the device, the word must be one of its voice nicknames. Settings → Voice assistants → Assist → Debug shows which trigger a sentence would match without running it. Debug logging for `custom_components.boiler_room` shows the registered sentences and which handler each command reached.
 
 **Assist answers twice.** Versions before 2026.10.29.1 had a "Create Voice Automations" button that wrote three automations (`Boiler Room | System Controls`, `Boiler Room | Games & Apps`, `Boiler Room | Jellyfin Media`). The integration now answers those sentences itself, so delete the three automations and any blueprints you imported for them.
 
