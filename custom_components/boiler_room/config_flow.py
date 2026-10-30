@@ -8,9 +8,11 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .api import BoilerRoomAPI
+from .core import jellyfin
 from .const import (
     CONF_DEVICE_ID,
     CONF_DEVICE_NAME,
@@ -64,7 +66,6 @@ class BoilerRoomConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._device_name = status.get("device_name", "SteamOS Device")
                 self._game_count = status.get("game_count", 0)
                 self._app_count = status.get("app_count", 0)
-                await api.close()
 
                 if not self._device_id:
                     return self.async_abort(reason="missing_unique_id")
@@ -189,17 +190,12 @@ class BoilerRoomOptionsFlow(OptionsFlow):
             jf_key = user_input.get(CONF_JELLYFIN_API_KEY, "").strip()
 
             if jf_url and jf_key:
-                import aiohttp
                 try:
-                    async with aiohttp.ClientSession() as session:
-                        headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
-                        async with session.get(
-                            f"{jf_url.rstrip('/')}/System/Info",
-                            headers=headers,
-                            timeout=aiohttp.ClientTimeout(total=5),
-                        ) as resp:
-                            if resp.status != 200:
-                                errors["base"] = "jellyfin_auth_failed"
+                    status = await jellyfin.check_connection(
+                        async_get_clientsession(self.hass), jf_url.rstrip("/"), jf_key
+                    )
+                    if status != 200:
+                        errors["base"] = "jellyfin_auth_failed"
                 except Exception:
                     errors["base"] = "jellyfin_connect_failed"
 

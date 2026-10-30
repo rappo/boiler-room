@@ -6,6 +6,9 @@ from automations, scripts, and blueprints.
 
 All services return a dict with at minimum a 'speech' key containing a
 natural-language response suitable for set_conversation_response.
+
+Pure logic lives in core/ (unit-tested without HA);
+this module only wires it to HA services.
 """
 
 from __future__ import annotations
@@ -15,186 +18,16 @@ import logging
 from typing import Any
 from urllib.parse import quote_plus
 
-import aiohttp
 import voluptuous as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN
+from .core import jellyfin
+from .core.matching import fuzzy_match_app, fuzzy_match_game, parse_app_aliases
 
 _LOGGER = logging.getLogger(__name__)
-
-
-# ─── Game Aliases ───
-
-# Default game aliases — common abbreviations that voice assistants might hear
-DEFAULT_ALIASES: dict[str, str] = {
-    "bg3": "Baldur's Gate 3",
-    "baldurs gate": "Baldur's Gate 3",
-    "cyberpunk": "Cyberpunk 2077",
-    "rdr2": "Red Dead Redemption 2",
-    "red dead": "Red Dead Redemption 2",
-    "gta": "Grand Theft Auto V",
-    "gta5": "Grand Theft Auto V",
-    "elden ring": "ELDEN RING",
-    "skyrim": "The Elder Scrolls V: Skyrim",
-    "witcher": "The Witcher 3: Wild Hunt",
-    "botw": "The Legend of Zelda: Breath of the Wild",
-    "totk": "The Legend of Zelda: Tears of the Kingdom",
-    "ff7": "FINAL FANTASY VII REMAKE",
-    "ds3": "DARK SOULS III",
-    "hollow knight": "Hollow Knight",
-    "stardew": "Stardew Valley",
-    "terraria": "Terraria",
-    "valheim": "Valheim",
-    "satisfactory": "Satisfactory",
-    "factorio": "Factorio",
-    "rimworld": "RimWorld",
-    "civ": "Sid Meier's Civilization VI",
-    "civ6": "Sid Meier's Civilization VI",
-    "portal": "Portal 2",
-    "half life": "Half-Life 2",
-    "dota": "Dota 2",
-    "cs": "Counter-Strike 2",
-    "csgo": "Counter-Strike 2",
-    "apex": "Apex Legends",
-}
-
-
-# ─── Fuzzy Matching ───
-
-
-def fuzzy_match_game(
-    query: str,
-    games: list[dict[str, Any]],
-    aliases: dict[str, str] | None = None,
-) -> dict[str, Any] | None:
-    """Find the best matching game for a voice query.
-
-    Match priority:
-    1. Exact alias match
-    2. Exact name match (case-insensitive)
-    3. Substring match (prefer shorter names = more specific)
-    4. Word-boundary matching
-    5. Edit-distance matching (handles STT errors like 'crap' vs 'crab')
-    """
-    query_lower = query.lower().strip()
-    if not query_lower:
-        return None
-
-    # Merge default aliases with user-configured aliases
-    all_aliases = {**DEFAULT_ALIASES}
-    if aliases:
-        all_aliases.update(aliases)
-
-    # 1. Check aliases first
-    if query_lower in all_aliases:
-        alias_target = all_aliases[query_lower].lower()
-        for game in games:
-            if game.get("name", "").lower() == alias_target:
-                return game
-
-    # 2. Exact name match
-    for game in games:
-        if game.get("name", "").lower() == query_lower:
-            return game
-
-    # 3. Substring match
-    substring_matches = []
-    for game in games:
-        name = game.get("name", "").lower()
-        if query_lower in name:
-            substring_matches.append(game)
-
-    if len(substring_matches) == 1:
-        return substring_matches[0]
-    if len(substring_matches) > 1:
-        # Return shortest name (most specific)
-        return min(substring_matches, key=lambda g: len(g.get("name", "")))
-
-    # 4. Word-boundary matching — check if all query words appear in the name
-    query_words = query_lower.split()
-    for game in games:
-        name_lower = game.get("name", "").lower()
-        if all(word in name_lower for word in query_words):
-            return game
-
-    # 5. Edit-distance matching — handles STT transcription errors
-    best_match = None
-    best_ratio = 0.0
-    for game in games:
-        name_lower = game.get("name", "").lower()
-        ratio = _similarity_ratio(query_lower, name_lower)
-        if ratio > best_ratio:
-            best_ratio = ratio
-            best_match = game
-
-    # Require at least 75% similarity to avoid false positives
-    if best_match and best_ratio >= 0.75:
-        _LOGGER.info(
-            "Edit-distance matched '%s' → '%s' (%.0f%%)",
-            query, best_match.get("name"), best_ratio * 100,
-        )
-        return best_match
-
-    return None
-
-
-def _similarity_ratio(a: str, b: str) -> float:
-    """Compute similarity ratio between two strings using Levenshtein distance.
-
-    Returns 1.0 for identical strings, 0.0 for completely different ones.
-    """
-    if a == b:
-        return 1.0
-    len_a, len_b = len(a), len(b)
-    if not len_a or not len_b:
-        return 0.0
-
-    # Quick length check — very different lengths can't be good matches
-    max_len = max(len_a, len_b)
-    if abs(len_a - len_b) / max_len > 0.5:
-        return 0.0
-
-    # Levenshtein distance (simple DP)
-    matrix = list(range(len_b + 1))
-    for i in range(1, len_a + 1):
-        prev = matrix[0]
-        matrix[0] = i
-        for j in range(1, len_b + 1):
-            temp = matrix[j]
-            if a[i - 1] == b[j - 1]:
-                matrix[j] = prev
-            else:
-                matrix[j] = 1 + min(prev, matrix[j], matrix[j - 1])
-            prev = temp
-
-    distance = matrix[len_b]
-    return 1.0 - (distance / max_len)
-
-
-def _fuzzy_match_app(
-    query: str,
-    apps: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    """Fuzzy match an app name against installed Flatpak apps."""
-    query_lower = query.lower().strip()
-    if not query_lower:
-        return None
-
-    # Exact match
-    for app in apps:
-        if app.get("name", "").lower() == query_lower:
-            return app
-
-    # Substring match
-    matches = [a for a in apps if query_lower in a.get("name", "").lower()]
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1:
-        return min(matches, key=lambda a: len(a.get("name", "")))
-
-    return None
 
 
 # ─── Context Helpers ───
@@ -243,61 +76,42 @@ def _get_jellyfin_cache(hass: HomeAssistant):
     return None
 
 
-# ─── Jellyfin Helpers ───
-
-_MEDIA_TYPE_DEFAULT = "Movie,Series,Audio,MusicAlbum,Episode"
-_BROWSE_TYPE_DEFAULT = "Movie,Series,Audio,MusicAlbum,MusicArtist,Person,Episode"
-_TYPE_LABELS = {
-    "Movie": "movie", "Series": "show", "MusicAlbum": "album",
-    "Audio": "song", "Episode": "episode", "MusicArtist": "artist",
-    "Person": "person",
-}
+def _get_app_aliases(hass: HomeAssistant) -> dict[str, str]:
+    """Get user-defined app aliases from the config entry options."""
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        aliases = parse_app_aliases(entry.options.get("app_aliases", ""))
+        if aliases:
+            return aliases
+    return {}
 
 
-async def _jellyfin_search(
-    jf_url: str, jf_key: str, query: str,
-    media_type: str | None = None, limit: int = 5,
-) -> list[dict[str, Any]]:
-    """Search the Jellyfin library."""
-    headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
-    include_types = media_type or _MEDIA_TYPE_DEFAULT
-    search_url = (
-        f"{jf_url}/Items?searchTerm={query}"
-        f"&Limit={limit}&Recursive=true"
-        f"&IncludeItemTypes={include_types}"
-    )
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            search_url, headers=headers,
-            timeout=aiohttp.ClientTimeout(total=10),
-        ) as resp:
-            if resp.status != 200:
-                return []
-            data = await resp.json()
-            return data.get("Items", [])
+def _resolve_query(hass: HomeAssistant, query: str) -> str:
+    """Run a voice query through the phonetic cache, if one is running."""
+    cache = _get_jellyfin_cache(hass)
+    if not cache:
+        return query
+    resolved_name, _ = cache.match_or_query(query)
+    if resolved_name != query:
+        _LOGGER.info("Cache resolved '%s' -> '%s'", query, resolved_name)
+    return resolved_name
 
 
-async def _jellyfin_find_session(jf_url: str, jf_key: str) -> str | None:
-    """Find a controllable Jellyfin session."""
-    headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            f"{jf_url}/Sessions", headers=headers,
-            timeout=aiohttp.ClientTimeout(total=5),
-        ) as resp:
-            if resp.status != 200:
-                return None
-            sessions = await resp.json()
+async def _find_or_launch_session(
+    hass: HomeAssistant, session, jf_url: str, jf_key: str, jf_app: str
+) -> str | None:
+    """Find a controllable Jellyfin session, launching the client app if needed."""
+    session_id = await jellyfin.find_session(session, jf_url, jf_key)
+    if session_id:
+        return session_id
 
-    session_id = None
-    for s in sessions:
-        client = (s.get("Client") or "").lower()
-        caps = s.get("Capabilities", {})
-        if caps.get("SupportsMediaControl"):
-            if any(kw in client for kw in ["jellyfin", "media player", "mpv"]):
-                return s.get("Id")
-            if not session_id:
-                session_id = s.get("Id")
+    api, _, _, _ = _get_device_context(hass)
+    if api and jf_app:
+        try:
+            await api.launch(appid=jf_app, launch_type="app")
+        except Exception:
+            _LOGGER.warning("Could not launch Jellyfin app %s", jf_app)
+        await asyncio.sleep(5)
+        session_id = await jellyfin.find_session(session, jf_url, jf_key)
     return session_id
 
 
@@ -324,9 +138,7 @@ JELLYFIN_BROWSE_SCHEMA = vol.Schema({
 })
 
 JELLYFIN_CONTROL_SCHEMA = vol.Schema({
-    vol.Required("action"): vol.In(
-        ["pause", "unpause", "stop", "rewind", "fastforward"]
-    ),
+    vol.Required("action"): vol.In(list(jellyfin.PLAYSTATE_COMMANDS)),
 })
 
 YOUTUBE_SEARCH_SCHEMA = vol.Schema({
@@ -357,51 +169,22 @@ def async_register_services(hass: HomeAssistant) -> None:
     if hass.services.has_service(DOMAIN, "launch_game"):
         return  # Already registered
 
-    hass.services.async_register(
-        DOMAIN, "launch_game", _handle_launch_game,
-        schema=LAUNCH_GAME_SCHEMA,
-        supports_response=SupportsResponse.OPTIONAL,
-    )
-    hass.services.async_register(
-        DOMAIN, "launch_app", _handle_launch_app,
-        schema=LAUNCH_APP_SCHEMA,
-        supports_response=SupportsResponse.OPTIONAL,
-    )
-    hass.services.async_register(
-        DOMAIN, "jellyfin_play", _handle_jellyfin_play,
-        schema=JELLYFIN_PLAY_SCHEMA,
-        supports_response=SupportsResponse.OPTIONAL,
-    )
-    hass.services.async_register(
-        DOMAIN, "jellyfin_browse", _handle_jellyfin_browse,
-        schema=JELLYFIN_BROWSE_SCHEMA,
-        supports_response=SupportsResponse.OPTIONAL,
-    )
-    hass.services.async_register(
-        DOMAIN, "jellyfin_control", _handle_jellyfin_control,
-        schema=JELLYFIN_CONTROL_SCHEMA,
-        supports_response=SupportsResponse.OPTIONAL,
-    )
-    hass.services.async_register(
-        DOMAIN, "youtube_search", _handle_youtube_search,
-        schema=YOUTUBE_SEARCH_SCHEMA,
-        supports_response=SupportsResponse.OPTIONAL,
-    )
-    hass.services.async_register(
-        DOMAIN, "power", _handle_power,
-        schema=POWER_SCHEMA,
-        supports_response=SupportsResponse.OPTIONAL,
-    )
-    hass.services.async_register(
-        DOMAIN, "wake", _handle_wake,
-        schema=WAKE_SCHEMA,
-        supports_response=SupportsResponse.OPTIONAL,
-    )
-    hass.services.async_register(
-        DOMAIN, "set_volume", _handle_set_volume,
-        schema=VOLUME_SCHEMA,
-        supports_response=SupportsResponse.OPTIONAL,
-    )
+    for name, handler, schema in (
+        ("launch_game", _handle_launch_game, LAUNCH_GAME_SCHEMA),
+        ("launch_app", _handle_launch_app, LAUNCH_APP_SCHEMA),
+        ("jellyfin_play", _handle_jellyfin_play, JELLYFIN_PLAY_SCHEMA),
+        ("jellyfin_browse", _handle_jellyfin_browse, JELLYFIN_BROWSE_SCHEMA),
+        ("jellyfin_control", _handle_jellyfin_control, JELLYFIN_CONTROL_SCHEMA),
+        ("youtube_search", _handle_youtube_search, YOUTUBE_SEARCH_SCHEMA),
+        ("power", _handle_power, POWER_SCHEMA),
+        ("wake", _handle_wake, WAKE_SCHEMA),
+        ("set_volume", _handle_set_volume, VOLUME_SCHEMA),
+    ):
+        hass.services.async_register(
+            DOMAIN, name, handler,
+            schema=schema,
+            supports_response=SupportsResponse.OPTIONAL,
+        )
 
     _LOGGER.info("Boiler Room services registered")
 
@@ -439,7 +222,7 @@ async def _handle_launch_game(call: ServiceCall) -> dict[str, Any]:
         return {"speech": f"Failed to launch {game['name']}."}
 
     # Fallback: try apps
-    app = _fuzzy_match_app(name, apps)
+    app = fuzzy_match_app(name, apps)
     if app:
         result = await api.launch(appid=app["id"], launch_type="app")
         if result.get("status") == "launching":
@@ -477,7 +260,7 @@ async def _handle_launch_app(call: ServiceCall) -> dict[str, Any]:
         return {"speech": f"Failed to open {name}."}
 
     # Fuzzy match against installed apps
-    app = _fuzzy_match_app(name, apps)
+    app = fuzzy_match_app(name, apps)
     if app:
         result = await api.launch(appid=app["id"], launch_type="app")
         if result.get("status") == "launching":
@@ -489,7 +272,7 @@ async def _handle_launch_app(call: ServiceCall) -> dict[str, Any]:
         return {"speech": f"Failed to open {app['name']}."}
 
     # Fallback: try games
-    game = fuzzy_match_game(name, games)
+    game = fuzzy_match_game(name, games, aliases)
     if game:
         result = await api.launch(appid=game["appid"])
         if result.get("status") == "launching":
@@ -502,7 +285,7 @@ async def _handle_launch_app(call: ServiceCall) -> dict[str, Any]:
 
     hint = (
         f"Couldn't find an app or game named {name}. "
-        "You can add an app alias in Settings → Integrations → Boiler Room → Configure."
+        "You can add an app alias in Settings > Integrations > Boiler Room > Configure."
     )
     return {"speech": hint}
 
@@ -518,17 +301,11 @@ async def _handle_jellyfin_play(call: ServiceCall) -> dict[str, Any]:
         return {"speech": "Jellyfin is not configured."}
 
     jf_url, jf_key, jf_app = jf_config["url"], jf_config["api_key"], jf_config["app_id"]
+    session = async_get_clientsession(hass)
 
-    # Try phonetic cache first
-    cache = _get_jellyfin_cache(hass)
-    search_query = query
-    if cache:
-        resolved_name, _ = cache.match_or_query(query)
-        if resolved_name != query:
-            _LOGGER.info("Cache resolved '%s' → '%s'", query, resolved_name)
-            search_query = resolved_name
-
-    items = await _jellyfin_search(jf_url, jf_key, search_query, media_type)
+    items = await jellyfin.search(
+        session, jf_url, jf_key, _resolve_query(hass, query), media_type
+    )
     if not items:
         hint = f" {media_type.lower()}" if media_type else ""
         return {"speech": f"I couldn't find a{hint} matching '{query}' on Jellyfin."}
@@ -537,34 +314,19 @@ async def _handle_jellyfin_play(call: ServiceCall) -> dict[str, Any]:
     item_name = item.get("Name", query)
     item_id = item.get("Id", "")
     item_type = item.get("Type", "")
-    type_label = _TYPE_LABELS.get(item_type, item_type.lower())
+    type_label = jellyfin.TYPE_LABELS.get(item_type, item_type.lower())
 
-    # Find or launch session
-    session_id = await _jellyfin_find_session(jf_url, jf_key)
-    if not session_id:
-        api, _, _, _ = _get_device_context(hass)
-        if api and jf_app:
-            try:
-                await api.launch(appid=jf_app, launch_type="app")
-            except Exception:
-                _LOGGER.warning("Could not launch Jellyfin app")
-            await asyncio.sleep(5)
-            session_id = await _jellyfin_find_session(jf_url, jf_key)
+    session_id = await _find_or_launch_session(hass, session, jf_url, jf_key, jf_app)
 
-    if session_id and item_id:
-        headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
-        play_url = f"{jf_url}/Sessions/{session_id}/Playing?ItemIds={item_id}&PlayCommand=PlayNow"
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                play_url, headers=headers, timeout=aiohttp.ClientTimeout(total=5),
-            ) as resp:
-                if resp.status < 400:
-                    return {
-                        "speech": f"Playing the {type_label} {item_name} on Jellyfin.",
-                        "item_name": item_name,
-                        "item_id": item_id,
-                        "item_type": item_type,
-                    }
+    if session_id and item_id and await jellyfin.play(
+        session, jf_url, jf_key, session_id, item_id
+    ):
+        return {
+            "speech": f"Playing the {type_label} {item_name} on Jellyfin.",
+            "item_name": item_name,
+            "item_id": item_id,
+            "item_type": item_type,
+        }
 
     return {
         "speech": f"Found the {type_label} {item_name}, but no active Jellyfin session.",
@@ -585,52 +347,29 @@ async def _handle_jellyfin_browse(call: ServiceCall) -> dict[str, Any]:
         return {"speech": "Jellyfin is not configured."}
 
     jf_url, jf_key, jf_app = jf_config["url"], jf_config["api_key"], jf_config["app_id"]
-    search_types = media_type or _BROWSE_TYPE_DEFAULT
+    session = async_get_clientsession(hass)
 
-    cache = _get_jellyfin_cache(hass)
-    search_query = query
-    if cache:
-        resolved_name, _ = cache.match_or_query(query)
-        if resolved_name != query:
-            _LOGGER.info("Cache resolved '%s' → '%s'", query, resolved_name)
-            search_query = resolved_name
-
-    items = await _jellyfin_search(jf_url, jf_key, search_query, search_types)
+    items = await jellyfin.search(
+        session, jf_url, jf_key, _resolve_query(hass, query),
+        media_type or jellyfin.BROWSE_TYPES_DEFAULT,
+    )
     if not items:
         return {"speech": f"I couldn't find anything matching '{query}' on Jellyfin."}
 
     item = items[0]
     item_name = item.get("Name", query)
     item_id = item.get("Id", "")
-    item_type = item.get("Type", "")
 
-    session_id = await _jellyfin_find_session(jf_url, jf_key)
-    if not session_id:
-        api, _, _, _ = _get_device_context(hass)
-        if api and jf_app:
-            try:
-                await api.launch(appid=jf_app, launch_type="app")
-            except Exception:
-                pass
-            await asyncio.sleep(5)
-            session_id = await _jellyfin_find_session(jf_url, jf_key)
+    session_id = await _find_or_launch_session(hass, session, jf_url, jf_key, jf_app)
 
-    if session_id and item_id:
-        headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
-        view_url = (
-            f"{jf_url}/Sessions/{session_id}/Viewing"
-            f"?itemType={item_type}&itemId={item_id}&itemName={item_name}"
-        )
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                view_url, headers=headers, timeout=aiohttp.ClientTimeout(total=5),
-            ) as resp:
-                if resp.status < 400:
-                    return {
-                        "speech": f"Showing {item_name} on Jellyfin.",
-                        "item_name": item_name,
-                        "item_id": item_id,
-                    }
+    if session_id and item_id and await jellyfin.view(
+        session, jf_url, jf_key, session_id, item
+    ):
+        return {
+            "speech": f"Showing {item_name} on Jellyfin.",
+            "item_name": item_name,
+            "item_id": item_id,
+        }
 
     return {"speech": f"Found {item_name}, but no active Jellyfin session."}
 
@@ -645,34 +384,18 @@ async def _handle_jellyfin_control(call: ServiceCall) -> dict[str, Any]:
         return {"speech": "Jellyfin is not configured."}
 
     jf_url, jf_key = jf_config["url"], jf_config["api_key"]
-    session_id = await _jellyfin_find_session(jf_url, jf_key)
+    session = async_get_clientsession(hass)
+
+    session_id = await jellyfin.find_session(session, jf_url, jf_key)
     if not session_id:
         return {"speech": "No active Jellyfin session found."}
 
-    headers = {"Authorization": f'MediaBrowser Token="{jf_key}"'}
-
-    # Map actions to Jellyfin session commands
-    command_map = {
-        "pause": ("PlayState", "Pause"),
-        "unpause": ("PlayState", "Unpause"),
-        "stop": ("PlayState", "Stop"),
-        "rewind": ("PlayState", "Rewind"),
-        "fastforward": ("PlayState", "FastForward"),
-    }
-
-    category, command = command_map[action]
-    url = f"{jf_url}/Sessions/{session_id}/Playing/{command}"
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            url, headers=headers, timeout=aiohttp.ClientTimeout(total=5),
-        ) as resp:
-            if resp.status < 400:
-                labels = {
-                    "pause": "Paused", "unpause": "Resumed", "stop": "Stopped",
-                    "rewind": "Rewinding", "fastforward": "Fast-forwarding",
-                }
-                return {"speech": f"{labels[action]} Jellyfin playback."}
+    if await jellyfin.playstate(session, jf_url, jf_key, session_id, action):
+        labels = {
+            "pause": "Paused", "unpause": "Resumed", "stop": "Stopped",
+            "rewind": "Rewinding", "fastforward": "Fast-forwarding",
+        }
+        return {"speech": f"{labels[action]} Jellyfin playback."}
 
     return {"speech": f"Failed to {action} Jellyfin playback."}
 
@@ -687,9 +410,7 @@ async def _handle_youtube_search(call: ServiceCall) -> dict[str, Any]:
         return {"speech": "No SteamOS device is connected."}
 
     jf_config = _get_jellyfin_config(hass)
-    youtube_app = ""
-    if jf_config:
-        youtube_app = jf_config.get("youtube_app_id", "")
+    youtube_app = jf_config.get("youtube_app_id", "") if jf_config else ""
 
     search_url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
 
@@ -747,23 +468,3 @@ async def _handle_set_volume(call: ServiceCall) -> dict[str, Any]:
 
     await api.set_volume(level)
     return {"speech": f"Volume set to {level} percent."}
-
-
-# ─── Helpers ───
-
-
-def _get_app_aliases(hass: HomeAssistant) -> dict[str, str]:
-    """Get user-defined app aliases from the config entry options."""
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        aliases_raw = entry.options.get("app_aliases", "")
-        if not aliases_raw:
-            continue
-        # Format: "youtube=rocks.shy.VacuumTube,browser=org.mozilla.firefox"
-        aliases = {}
-        for pair in aliases_raw.split(","):
-            pair = pair.strip()
-            if "=" in pair:
-                key, val = pair.split("=", 1)
-                aliases[key.strip().lower()] = val.strip()
-        return aliases
-    return {}

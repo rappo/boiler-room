@@ -23,6 +23,8 @@ from typing import Any
 
 import aiohttp
 
+from .jellyfin import auth_headers
+
 _LOGGER = logging.getLogger(__name__)
 
 # Minimum similarity ratio to consider a phonetic match.
@@ -88,11 +90,13 @@ class JellyfinMediaCache:
 
     def __init__(
         self,
+        session: aiohttp.ClientSession,
         jf_url: str,
         jf_key: str,
         cache_types: list[str] | None = None,
         refresh_minutes: int = 30,
     ) -> None:
+        self._session = session
         self.jf_url = jf_url.rstrip("/")
         self.jf_key = jf_key
         self.cache_types = cache_types or ["MusicArtist", "MusicAlbum"]
@@ -166,23 +170,22 @@ class JellyfinMediaCache:
             )
 
         fetch_time = datetime.now(timezone.utc)
-        headers = {"Authorization": f'MediaBrowser Token="{self.jf_key}"'}
+        headers = auth_headers(self.jf_key)
         url = f"{self.jf_url}/Items"
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url,
-                    headers=headers,
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=30),
-                ) as resp:
-                    if resp.status != 200:
-                        _LOGGER.warning(
-                            "Jellyfin cache fetch failed: HTTP %s", resp.status
-                        )
-                        return
-                    data = await resp.json()
+            async with self._session.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status != 200:
+                    _LOGGER.warning(
+                        "Jellyfin cache fetch failed: HTTP %s", resp.status
+                    )
+                    return
+                data = await resp.json()
         except asyncio.TimeoutError:
             _LOGGER.warning("Jellyfin cache fetch timed out")
             return
@@ -190,20 +193,7 @@ class JellyfinMediaCache:
             _LOGGER.exception("Jellyfin cache fetch error")
             return
 
-        items = data.get("Items", [])
-
-        if full:
-            self._items.clear()
-
-        added = 0
-        for item in items:
-            item_id = item.get("Id", "")
-            name = item.get("Name", "")
-            item_type = item.get("Type", "")
-            if item_id and name:
-                self._items[item_id] = CachedItem(item_id, name, item_type)
-                added += 1
-
+        added = self.ingest(data.get("Items", []), replace=full)
         self._last_synced = fetch_time
 
         mode = "full" if full else "incremental"
@@ -213,6 +203,24 @@ class JellyfinMediaCache:
             added,
             len(self._items),
         )
+
+    def ingest(self, items: list[dict[str, Any]], replace: bool = False) -> int:
+        """Add Jellyfin item dicts to the cache; returns how many were accepted.
+
+        Items without an Id or Name are skipped. With replace=True the
+        cache is cleared first (full sync).
+        """
+        if replace:
+            self._items.clear()
+
+        added = 0
+        for item in items:
+            item_id = item.get("Id", "")
+            name = item.get("Name", "")
+            if item_id and name:
+                self._items[item_id] = CachedItem(item_id, name, item_type=item.get("Type", ""))
+                added += 1
+        return added
 
     # ─── Matching ───
 
