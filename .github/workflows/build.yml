@@ -8,15 +8,53 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
-          go-version: "1.22"
+          go-version-file: agent/go.mod
+
+      - name: gofmt
+        working-directory: ./agent
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needed:" "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        working-directory: ./agent
+        run: go vet ./...
+
+      - name: go test
+        working-directory: ./agent
+        run: go test ./...
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Integration unit tests
+        run: |
+          python -m pip install --quiet aiohttp
+          python -m unittest discover -s tests -t . -v
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: agent/go.mod
 
       - name: Build
         working-directory: ./agent
@@ -27,7 +65,7 @@ jobs:
             ./cmd/boiler-room-agent/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: boiler-room-agent-linux-amd64
           path: boiler-room-agent-linux-amd64
@@ -40,12 +78,12 @@ jobs:
       contents: write
     steps:
       - name: Download artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: boiler-room-agent-linux-amd64
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: boiler-room-agent-linux-amd64
           generate_release_notes: true
