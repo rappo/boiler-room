@@ -19,6 +19,10 @@ import (
 	"github.com/rappo/boiler-room/agent/internal/updater"
 )
 
+// homeSizeInterval is how often the home directory is re-measured with du.
+// The walk takes seconds on a full game drive; HA polls every 15 s.
+const homeSizeInterval = time.Hour
+
 // RecentLaunch tracks a recently launched game or app.
 type RecentLaunch struct {
 	Name      string `json:"name"`
@@ -37,6 +41,7 @@ type Server struct {
 	wsHub         *WSHub
 	updater       *updater.Updater
 	powerState    *system.PowerState
+	homeSize      *system.DirSizeSampler
 	port          int
 	deviceName    string
 	version       string
@@ -54,6 +59,7 @@ func NewServer(scanner *games.Scanner, sysInfo *system.Info, pluginMgr *plugins.
 		wsHub:         NewWSHub(),
 		updater:       upd,
 		powerState:    ps,
+		homeSize:      system.NewDirSizeSampler(os.Getenv("HOME"), homeSizeInterval),
 		port:          port,
 		deviceName:    deviceName,
 		version:       version,
@@ -479,7 +485,7 @@ func (s *Server) handleSensors(w http.ResponseWriter, r *http.Request) {
 	ambientTemp, _ := system.AmbientTemp()
 	volume, _ := system.VolumeGet()
 	diskTotal, diskUsed, diskFree := system.DiskUsage("/")
-	homeSize := system.DirSizeGB(os.Getenv("HOME"))
+	homeSize := s.homeSize.Get()
 
 	usedPct := 0.0
 	if diskTotal > 0 {
@@ -622,14 +628,6 @@ func (s *Server) handlePluginAction(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Middleware ---
-
-func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
-	})
-}
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
