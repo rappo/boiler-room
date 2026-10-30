@@ -68,8 +68,11 @@ jobs:
       - name: Build
         working-directory: ./agent
         run: |
+          # A tag v0.5.3 stamps "0.5.3" (what the updater compares against release
+          # tags); any other build stamps "dev-<commit>", which keeps the updater off.
+          if [ "$GITHUB_REF_TYPE" = tag ]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION="dev-${GITHUB_SHA::7}"; fi
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-            -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+            -ldflags="-s -w -X main.version=${VERSION}" \
             -o ../boiler-room-agent-linux-amd64 \
             ./cmd/boiler-room-agent/
 

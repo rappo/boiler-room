@@ -20,9 +20,18 @@ import (
 	"github.com/rappo/boiler-room/agent/internal/updater"
 )
 
-// version is stamped by the release build (-ldflags "-X main.version=v0.5.3").
-// A local build reports "dev" rather than a stale number.
+// version is stamped by CI (-ldflags "-X main.version=0.5.3" for a tag,
+// "dev-<commit>" for any other build). A local build reports "dev" rather
+// than a stale number. Only a release number enables the self-updater.
 var version = "dev"
+
+// versionLabel is the version as shown to people: releases get a "v".
+func versionLabel() string {
+	if updater.IsRelease(version) {
+		return "v" + version
+	}
+	return version
+}
 
 func main() {
 	showVersion := flag.Bool("version", false, "Print version and exit")
@@ -30,12 +39,12 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("boiler-room-agent v%s\n", version)
+		fmt.Printf("boiler-room-agent %s\n", versionLabel())
 		os.Exit(0)
 	}
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	log.Printf("🔥 Boiler Room Agent v%s starting...", version)
+	log.Printf("🔥 Boiler Room Agent %s starting...", versionLabel())
 
 	// Load config (auto-defaults if no config file exists)
 	cfg := config.Load()

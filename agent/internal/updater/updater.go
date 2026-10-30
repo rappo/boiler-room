@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -48,11 +49,22 @@ func NewUpdater(repoURL, currentVersion string) *Updater {
 	}
 }
 
-// Enabled reports whether update checks make sense: a repo URL is
-// configured and this is a tagged build (local builds report "dev" and
-// would otherwise see every release as an update).
+// Enabled reports whether update checks make sense: a repo URL is configured
+// and this is a release build. CI stamps a release with the tag's number
+// ("0.5.3") and every other build with "dev-<commit>"; a local build says
+// "dev". Comparing those against the latest release would report every
+// release as an update, and applying one would replace a newer binary with
+// an older release.
 func (u *Updater) Enabled() bool {
-	return u.repoURL != "" && u.currentVersion != "dev"
+	return u.repoURL != "" && IsRelease(u.currentVersion)
+}
+
+var releaseVersion = regexp.MustCompile(`^\d+\.\d+\.\d+`)
+
+// IsRelease reports whether version is a stamped release number such as
+// "0.5.3", as opposed to "dev", "dev-<commit>" or a bare ref name.
+func IsRelease(version string) bool {
+	return releaseVersion.MatchString(version)
 }
 
 // CheckForUpdate queries the releases API and returns the latest version, or empty if current.
