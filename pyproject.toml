@@ -1,0 +1,5 @@
+[tool.pytest.ini_options]
+# Home Assistant harness tests (pytest-homeassistant-custom-component).
+# The framework-free unit tests in tests/ run with plain unittest instead.
+asyncio_mode = "auto"
+testpaths = ["tests/ha"]

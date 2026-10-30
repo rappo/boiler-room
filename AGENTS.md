@@ -28,10 +28,12 @@ Run both before every commit; CI runs them on every push and PR.
 ```bash
 cd agent && gofmt -l . && go vet ./... && go test ./...
 python -m pip install aiohttp && python -m unittest discover -s tests -t . -v
+python -m pip install pytest-homeassistant-custom-component && python -m pytest tests/ha -q
 ```
 
-- Python tests load `core` by file path (see `tests/__init__.py`). Never put `custom_components/boiler_room` itself on `sys.path`: its `select.py` shadows the stdlib `select` module and breaks `asyncio` (cost a round of head-scratching on 2026-10-29).
-- New pure logic goes in `core/` with a test beside it in `tests/`. HA-facing code (entities, services, config flow) is verified by deploying to HA.
+- `tests/` (plain unittest) covers `core/`. It loads `core` by file path (see `tests/__init__.py`). Never put `custom_components/boiler_room` itself on `sys.path`: its `select.py` shadows the stdlib `select` module and breaks `asyncio` (cost a round of head-scratching on 2026-10-29).
+- `tests/ha/` (pytest + `pytest-homeassistant-custom-component`) sets the integration up in a real Home Assistant core with the agent mocked, for behavior that lives in HA wiring (coordinator, entities, storage). The harness pins its own HA release, which trails the live one; it is a correctness check, not a compatibility check. Under pytest the harness's own `custom_components` package shadows this repo's; `tests/ha/conftest.py` appends this repo's directory to its `__path__`, which is why those tests only run through pytest from the repo root.
+- New pure logic goes in `core/` with a unittest beside it; new HA wiring gets a harness test; anything that touches the Steam machine itself (pactl, steamosctl, DBus) is verified live.
 
 ## Lessons
 
