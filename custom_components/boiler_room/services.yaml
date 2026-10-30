@@ -190,3 +190,25 @@ set_volume:
       required: false
       selector:
         text:
+
+get_status:
+  name: Device Status
+  description: Power state, what is running, temperatures, volume and battery. Without a device, every device.
+  fields:
+    device:
+      name: Device
+      description: Target device by name or voice nickname (optional, defaults to every device).
+      required: false
+      selector:
+        text:
+
+list_recent:
+  name: Recent Launches
+  description: The games and apps launched most recently, newest first.
+  fields:
+    device:
+      name: Device
+      description: Target device by name or voice nickname (optional, defaults to the first device that was reached).
+      required: false
+      selector:
+        text:

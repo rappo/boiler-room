@@ -2,8 +2,13 @@
 
 The HA layer (``voice.py``) registers every template from
 :func:`build_commands` in ONE conversation trigger and routes a match back
-to a handler by the template text that matched. Nothing here imports Home
+to an action by the template text that matched; :func:`intent_slots` turns
+the match into the slots of that action's intent. Nothing here imports Home
 Assistant, so the templates and the routing are unit-tested in ``tests/``.
+
+The templates are the fast, offline lane: exact phrasings that work with
+every Assist pipeline. They stay close to the README's tables; free
+phrasing is what an LLM conversation agent adds through the same intents.
 
 Ordering matters. hassil yields matches in template order and the default
 agent keeps only the first match per trigger, so templates with more
@@ -21,7 +26,7 @@ from dataclasses import dataclass, field
 # Nicknames every device answers to unless the user changes them.
 DEFAULT_NICKNAMES: tuple[str, ...] = ("deck", "steam machine", "gaming pc")
 
-# Handler names the HA layer maps to functions in services.py.
+# Action names: the keys of services.ACTIONS, where each has its intent.
 HANDLER_LAUNCH_GAME = "launch_game"
 HANDLER_LAUNCH_APP = "launch_app"
 HANDLER_JELLYFIN_PLAY = "jellyfin_play"
@@ -31,6 +36,9 @@ HANDLER_YOUTUBE_SEARCH = "youtube_search"
 HANDLER_POWER = "power"
 HANDLER_WAKE = "wake"
 HANDLER_SET_VOLUME = "set_volume"
+# Read-only actions; no sentence yet, reached through an LLM agent.
+HANDLER_GET_STATUS = "get_status"
+HANDLER_LIST_RECENT = "list_recent"
 # A nickname shared by two devices: the callback asks which one was meant.
 HANDLER_AMBIGUOUS_DEVICE = "ambiguous_device"
 
@@ -45,17 +53,20 @@ HANDLERS: frozenset[str] = frozenset(
         HANDLER_POWER,
         HANDLER_WAKE,
         HANDLER_SET_VOLUME,
+        HANDLER_GET_STATUS,
+        HANDLER_LIST_RECENT,
         HANDLER_AMBIGUOUS_DEVICE,
     }
 )
 
-# Slot names used in the templates and the handler keyword each one feeds.
+# Slot names used in the templates and the intent slot (service field) each
+# one fills. The intent slots are the fields in services.ACTIONS.
 SLOT_GAME_NAME = "game_name"
 SLOT_APP_NAME = "app_name"
 SLOT_QUERY = "query"
 SLOT_VOLUME = "volume"
 
-SLOT_TO_KWARG: dict[str, str] = {
+SLOT_TO_FIELD: dict[str, str] = {
     SLOT_GAME_NAME: "name",
     SLOT_APP_NAME: "name",
     SLOT_QUERY: "query",
@@ -83,6 +94,9 @@ class Command:
     # Config entry the sentence names; None means "resolve at call time"
     # (the only device, or the one with Jellyfin configured).
     entry_id: str | None = None
+
+    # ``params`` are static intent slots (service field names), e.g.
+    # ``{"action": "suspend"}`` or ``{"type": "Movie"}``.
 
     @property
     def slots(self) -> tuple[str, ...]:
@@ -158,17 +172,24 @@ def split_shared_nicknames(
 
 
 def match_device(
-    spoken: str | None, devices: Mapping[str, Sequence[str]]
+    spoken: str | None,
+    devices: Mapping[str, Sequence[str]],
+    own_names: Mapping[str, str] | None = None,
 ) -> str | None:
     """Find the entry whose names include ``spoken`` (exact, then substring).
 
     ``devices`` maps entry id to every name it answers to (nicknames, device
-    name, entry title). Returns None when nothing matches or the match is
-    not unique.
+    name, entry title) and ``own_names`` to the device's own name. As in
+    :func:`split_shared_nicknames`, the one device that is literally named
+    "deck" wins "deck" over devices that only list it as a nickname. Returns
+    None when nothing matches or the match is not unique.
     """
     wanted = clean_nickname(spoken or "")
     if not wanted:
         return None
+    named = [eid for eid, name in (own_names or {}).items() if clean_nickname(name) == wanted]
+    if len(named) == 1:
+        return named[0]
     cleaned = {
         entry_id: [clean_nickname(name) for name in names]
         for entry_id, names in devices.items()
@@ -204,14 +225,9 @@ _DEVICE_COMMANDS: tuple[tuple[str, str, dict[str, str]], ...] = (
     ("(Wake up|Turn on|Power on) [the] {device}", HANDLER_WAKE, {}),
     ("(Suspend|Sleep) [the] {device}", HANDLER_POWER, {"action": "suspend"}),
     ("Put [the] {device} to sleep", HANDLER_POWER, {"action": "suspend"}),
-    (
-        "(Turn off|Shut down|Shutdown|Power off) [the] {device}",
-        HANDLER_POWER,
-        {"action": "shutdown"},
-    ),
+    ("(Turn off|Shut down|Power off) [the] {device}", HANDLER_POWER, {"action": "shutdown"}),
     ("(Reboot|Restart) [the] {device}", HANDLER_POWER, {"action": "reboot"}),
-    ("(Set|Change) [the] {device} volume to {volume}", HANDLER_SET_VOLUME, {}),
-    ("Set [the] volume (on|of) [the] {device} to {volume}", HANDLER_SET_VOLUME, {}),
+    ("Set [the] {device} volume to {volume}", HANDLER_SET_VOLUME, {}),
     ("Volume {volume} [on] [the] {device}", HANDLER_SET_VOLUME, {}),
     ("(Launch|Start|Open) the {app_name} app on [the] {device}", HANDLER_LAUNCH_APP, {}),
     (
@@ -226,59 +242,35 @@ _DEVICE_COMMANDS: tuple[tuple[str, str, dict[str, str]], ...] = (
 # once; the handler picks the device (the one with Jellyfin configured, or
 # the only device). Typed forms come before the untyped ones on purpose.
 _ANCHORED_COMMANDS: tuple[tuple[str, str, dict[str, str]], ...] = (
+    (f"Play the movie {{query}} (on|in) {_JELLYFIN}", HANDLER_JELLYFIN_PLAY, {"type": "Movie"}),
     (
-        f"(Play|Watch|Put on) the movie {{query}} (on|in) {_JELLYFIN}",
+        f"Play the (show|series) {{query}} (on|in) {_JELLYFIN}",
         HANDLER_JELLYFIN_PLAY,
-        {"media_type": "Movie"},
+        {"type": "Series"},
     ),
+    (f"Play the album {{query}} (on|in) {_JELLYFIN}", HANDLER_JELLYFIN_PLAY, {"type": "MusicAlbum"}),
+    (f"Play the song {{query}} (on|in) {_JELLYFIN}", HANDLER_JELLYFIN_PLAY, {"type": "Audio"}),
     (
-        f"(Play|Watch|Put on) the (show|series|tv show) {{query}} (on|in) {_JELLYFIN}",
-        HANDLER_JELLYFIN_PLAY,
-        {"media_type": "Series"},
-    ),
-    (
-        f"(Play|Listen to|Put on) the album {{query}} (on|in) {_JELLYFIN}",
-        HANDLER_JELLYFIN_PLAY,
-        {"media_type": "MusicAlbum"},
-    ),
-    (
-        f"(Play|Listen to|Put on) the song {{query}} (on|in) {_JELLYFIN}",
-        HANDLER_JELLYFIN_PLAY,
-        {"media_type": "Audio"},
-    ),
-    (
-        f"(Show|Browse|Find|Look up|Go to) the movie {{query}} (on|in) {_JELLYFIN}",
+        f"(Show|Find) the movie {{query}} (on|in) {_JELLYFIN}",
         HANDLER_JELLYFIN_BROWSE,
-        {"media_type": "Movie"},
+        {"type": "Movie"},
     ),
     (
-        f"(Show|Browse|Find|Look up|Go to) the (show|series|tv show) {{query}} (on|in) {_JELLYFIN}",
+        f"(Show|Find) the (show|series) {{query}} (on|in) {_JELLYFIN}",
         HANDLER_JELLYFIN_BROWSE,
-        {"media_type": "Series"},
+        {"type": "Series"},
     ),
     (
-        f"(Show|Browse|Find|Look up|Go to) the (album|artist|band) {{query}} (on|in) {_JELLYFIN}",
+        f"(Show|Find) the (album|artist) {{query}} (on|in) {_JELLYFIN}",
         HANDLER_JELLYFIN_BROWSE,
-        {"media_type": "MusicAlbum,MusicArtist"},
+        {"type": "MusicAlbum,MusicArtist"},
     ),
-    (
-        f"(Play|Watch|Listen to|Put on) {{query}} (on|in) {_JELLYFIN}",
-        HANDLER_JELLYFIN_PLAY,
-        {},
-    ),
-    (
-        f"(Show me|Browse|Look up) {{query}} (on|in) {_JELLYFIN}",
-        HANDLER_JELLYFIN_BROWSE,
-        {},
-    ),
+    (f"(Play|Watch|Listen to|Put on) {{query}} (on|in) {_JELLYFIN}", HANDLER_JELLYFIN_PLAY, {}),
+    (f"(Show me|Browse|Look up) {{query}} (on|in) {_JELLYFIN}", HANDLER_JELLYFIN_BROWSE, {}),
     (f"Pause {_PLAYBACK}", HANDLER_JELLYFIN_CONTROL, {"action": "pause"}),
     (f"(Resume|Unpause) {_PLAYBACK}", HANDLER_JELLYFIN_CONTROL, {"action": "unpause"}),
     (f"Stop {_PLAYBACK}", HANDLER_JELLYFIN_CONTROL, {"action": "stop"}),
-    (
-        f"(Rewind|Go back|Skip back) {_PLAYBACK}",
-        HANDLER_JELLYFIN_CONTROL,
-        {"action": "rewind"},
-    ),
+    (f"(Rewind|Go back|Skip back) {_PLAYBACK}", HANDLER_JELLYFIN_CONTROL, {"action": "rewind"}),
     (
         f"(Fast forward|Skip forward|Skip ahead) {_PLAYBACK}",
         HANDLER_JELLYFIN_CONTROL,
@@ -292,13 +284,9 @@ _ANCHORED_COMMANDS: tuple[tuple[str, str, dict[str, str]], ...] = (
 # wildcard swallows anything after the verb; app before game as above.
 _GENERIC_COMMANDS: tuple[tuple[str, str, dict[str, str]], ...] = (
     ("(Launch|Start|Open) the {app_name} app", HANDLER_LAUNCH_APP, {}),
-    (
-        "(Launch|Play|Start|Open|Run|Boot up|Fire up) {game_name}",
-        HANDLER_LAUNCH_GAME,
-        {},
-    ),
+    ("(Launch|Play|Start|Open|Run|Boot up|Fire up) {game_name}", HANDLER_LAUNCH_GAME, {}),
     ("Put on {game_name}", HANDLER_LAUNCH_GAME, {}),
-    ("(Set|Change) [the] volume to {volume}", HANDLER_SET_VOLUME, {}),
+    ("Set [the] volume to {volume}", HANDLER_SET_VOLUME, {}),
 )
 
 
@@ -358,11 +346,13 @@ def by_template(commands: Sequence[Command]) -> dict[str, Command]:
     return index
 
 
-def handler_arguments(command: Command, slots: Mapping[str, object]) -> dict[str, object]:
-    """Keyword arguments for the handler: static params plus matched slots.
+def intent_slots(command: Command, slots: Mapping[str, object]) -> dict[str, object]:
+    """Intent slot values for a match: static params plus the matched text.
 
-    Slot values arrive as text; the volume becomes an int in 0..100.
-    Raises ValueError when a required slot is missing or unusable.
+    Keys are the action's field names (``name``, ``query``, ``type``,
+    ``action``, ``level``). Slot values arrive as text; the volume becomes
+    an int in 0..100. Raises ValueError when a required slot is missing or
+    unusable, so the voice lane can answer with a hint instead of an error.
     """
     kwargs: dict[str, object] = dict(command.params)
     for slot in command.slots:
@@ -377,9 +367,9 @@ def handler_arguments(command: Command, slots: Mapping[str, object]) -> dict[str
                 raise ValueError(f"volume {text!r} is not a number") from err
             if not 0 <= level <= 100:
                 raise ValueError(f"volume {level} is out of range")
-            kwargs[SLOT_TO_KWARG[slot]] = level
+            kwargs[SLOT_TO_FIELD[slot]] = level
         else:
             if not text:
                 raise ValueError(f"slot {slot!r} is empty")
-            kwargs[SLOT_TO_KWARG[slot]] = text
+            kwargs[SLOT_TO_FIELD[slot]] = text
     return kwargs

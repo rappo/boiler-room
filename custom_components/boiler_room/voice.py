@@ -1,14 +1,17 @@
-"""Voice commands: one conversation trigger registered by the integration.
+"""Voice sentences: one conversation trigger, a thin lane onto the intents.
 
 No automation, blueprint or button is needed. On every entry setup,
 unload and options change the trigger is rebuilt from the loaded entries
 and their nicknames (``core/sentences.py`` builds the templates), so a
 second device or a renamed nickname takes effect at once.
 
-A match comes back with the template text that matched; that text is the
-key to the command, which names the handler in ``services.py``, its
-static parameters and the config entry the spoken nickname belongs to.
-The handler's ``speech`` is returned to Assist as the response.
+``register_trigger`` is the only way an integration can give the default
+Home Assistant agent sentences, and sentence triggers run before any
+conversation agent in every pipeline, so this is the fast, offline lane.
+It owns no command logic: a match maps the template to an action's intent
+type and slots and calls ``intent.async_handle``; the intent's speech is
+the Assist response. Free phrasing is the LLM agents' lane (``llm.py``),
+which ends in the same intents.
 """
 
 from __future__ import annotations
@@ -18,56 +21,27 @@ from typing import Any
 
 from homeassistant.components.conversation import get_agent_manager
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import intent
 
 from . import services
 from .const import DOMAIN
 from .core.sentences import (
     HANDLER_AMBIGUOUS_DEVICE,
-    HANDLER_JELLYFIN_BROWSE,
-    HANDLER_JELLYFIN_CONTROL,
-    HANDLER_JELLYFIN_PLAY,
-    HANDLER_LAUNCH_APP,
-    HANDLER_LAUNCH_GAME,
-    HANDLER_POWER,
-    HANDLER_SET_VOLUME,
-    HANDLER_WAKE,
-    HANDLER_YOUTUBE_SEARCH,
     SLOT_VOLUME,
     Command,
     build_commands,
     by_template,
-    handler_arguments,
+    intent_slots,
     templates,
 )
+from .intents import INTENT_TYPES, which_device_speech
+from .services import FIELD_DEVICE
 
 _LOGGER = logging.getLogger(__name__)
 
 VOICE_DATA_KEY = f"{DOMAIN}.voice"
 
-_HANDLERS = {
-    HANDLER_LAUNCH_GAME: services.launch_game,
-    HANDLER_LAUNCH_APP: services.launch_app,
-    HANDLER_JELLYFIN_PLAY: services.jellyfin_play,
-    HANDLER_JELLYFIN_BROWSE: services.jellyfin_browse,
-    HANDLER_JELLYFIN_CONTROL: services.jellyfin_control,
-    HANDLER_YOUTUBE_SEARCH: services.youtube_search,
-    HANDLER_POWER: services.power,
-    HANDLER_WAKE: services.wake,
-    HANDLER_SET_VOLUME: services.set_volume,
-}
-
-# Handlers that act on one device. A sentence without a device name only
-# reaches them when a single device is configured; otherwise Assist asks.
-_NEEDS_DEVICE = frozenset(
-    {
-        HANDLER_LAUNCH_GAME,
-        HANDLER_LAUNCH_APP,
-        HANDLER_YOUTUBE_SEARCH,
-        HANDLER_POWER,
-        HANDLER_WAKE,
-        HANDLER_SET_VOLUME,
-    }
-)
+FAILED_SPEECH = "Sorry, that did not work. Check the Boiler Room log."
 
 
 @callback
@@ -110,28 +84,19 @@ def async_remove_voice_triggers(hass: HomeAssistant) -> None:
         state["unsubscribe"]()
 
 
-def _which_device(hass: HomeAssistant) -> str:
-    names = [services.device_name(entry) for entry, _ in services.loaded_entries(hass)]
-    if len(names) > 1:
-        listed = ", ".join(names[:-1]) + f" or {names[-1]}"
-    else:
-        listed = names[0] if names else "no device"
-    return f"Which device do you mean? I know {listed}."
-
-
 async def _handle_match(
     hass: HomeAssistant, index: dict[str, Command], user_input: Any, result: Any
 ) -> str | None:
-    """Route a hassil match to its handler and return the speech."""
+    """Turn a hassil match into an intent call and return the speech."""
     template = result.intent_sentence.text if result.intent_sentence is not None else None
     command = index.get(template or "")
     if command is None:
         _LOGGER.warning("Voice match with unknown template %r for %r", template, user_input.text)
         return None
 
-    slots = {name: entity.value for name, entity in result.entities.items()}
+    matched = {name: entity.value for name, entity in result.entities.items()}
     try:
-        kwargs = handler_arguments(command, slots)
+        values = intent_slots(command, matched)
     except ValueError as err:
         _LOGGER.debug("Unusable slots for %r: %s", user_input.text, err)
         if SLOT_VOLUME in command.slots:
@@ -139,21 +104,28 @@ async def _handle_match(
         return "I didn't catch what you want me to open."
 
     if command.handler == HANDLER_AMBIGUOUS_DEVICE:
-        return _which_device(hass)
+        return which_device_speech(hass)
 
-    if (
-        command.entry_id is None
-        and command.handler in _NEEDS_DEVICE
-        and len(services.loaded_entries(hass)) > 1
-    ):
-        return _which_device(hass)
+    slots = {name: {"value": value} for name, value in values.items()}
+    if command.entry_id is not None:
+        # The nickname that was spoken belongs to this entry.
+        slots[FIELD_DEVICE] = {"value": command.entry_id}
 
-    _LOGGER.debug(
-        "Voice: %r -> %s(%s) entry=%s", user_input.text, command.handler, kwargs, command.entry_id
-    )
+    _LOGGER.debug("Voice: %r -> %s %s", user_input.text, INTENT_TYPES[command.handler], slots)
     try:
-        response = await _HANDLERS[command.handler](hass, entry_id=command.entry_id, **kwargs)
-    except Exception:
+        response = await intent.async_handle(
+            hass,
+            DOMAIN,
+            INTENT_TYPES[command.handler],
+            slots,
+            text_input=user_input.text,
+            context=user_input.context,
+            language=user_input.language,
+            device_id=user_input.device_id,
+            satellite_id=user_input.satellite_id,
+            conversation_agent_id=user_input.agent_id,
+        )
+    except intent.IntentError:
         _LOGGER.exception("Voice command %r failed", user_input.text)
-        return "Sorry, that did not work. Check the Boiler Room log."
-    return response.get("speech") or None
+        return FAILED_SPEECH
+    return response.speech.get("plain", {}).get("speech") or None

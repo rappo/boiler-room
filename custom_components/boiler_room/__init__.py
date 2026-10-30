@@ -9,16 +9,24 @@ from datetime import timedelta
 from typing import Any
 
 import aiohttp
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import BoilerRoomAPI
-from .const import CONF_DEVICE_ID, CONF_HOST, CONF_PORT, DOMAIN, PLATFORMS, SCAN_INTERVAL
+from .const import (
+    CONF_DEVICE_ID,
+    CONF_HOST,
+    CONF_PORT,
+    DOMAIN,
+    PLATFORMS,
+    SCAN_INTERVAL,
+)
+from .intents import async_register_intents, async_remove_intents
 from .services import async_register_services, async_unregister_services
 from .voice import async_refresh_voice_triggers, async_remove_voice_triggers
 
@@ -65,7 +73,7 @@ async def async_setup_entry(
 
     try:
         await coordinator.async_config_entry_first_refresh()
-    except Exception:
+    except ConfigEntryNotReady:
         _LOGGER.warning(
             "Could not reach %s:%s on startup; will keep retrying. "
             "WoL and voice commands are still available.",
@@ -87,6 +95,7 @@ async def async_setup_entry(
     _remove_legacy_entities(hass, entry)
 
     async_register_services(hass)
+    async_register_intents(hass)
     async_refresh_voice_triggers(hass)
 
     ws_task = hass.async_create_background_task(
@@ -125,6 +134,7 @@ async def async_unload_entry(
             async_refresh_voice_triggers(hass)
         else:
             async_remove_voice_triggers(hass)
+            async_remove_intents(hass)
             async_unregister_services(hass)
 
     return unload_ok
@@ -252,10 +262,12 @@ class BoilerRoomCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.api = api
         self._host = entry.data[CONF_HOST]
         self._port = entry.data[CONF_PORT]
-        self._store = Store(
+        self._store: Store[dict[str, Any]] = Store(
             hass, _STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.power_state"
         )
-        self._legacy_store = Store(hass, _STORAGE_VERSION, _LEGACY_STORAGE_KEY)
+        self._legacy_store: Store[dict[str, Any]] = Store(
+            hass, _STORAGE_VERSION, _LEGACY_STORAGE_KEY
+        )
         # Last power state written to disk; writes only happen on change.
         self._persisted_power_state: str | None = None
 
@@ -324,7 +336,7 @@ class BoilerRoomCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Steam users are optional (older agents do not have the endpoint).
             try:
                 users = await self.api.get_users()
-            except Exception:
+            except (aiohttp.ClientError, TimeoutError, OSError):
                 users = {}
         except Exception as err:
             # Device unreachable (sleeping, off, rebooting). Data is left as
@@ -377,7 +389,7 @@ class BoilerRoomCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.debug("WebSocket listener cancelled")
                 return
 
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - the listener must outlive any failure
                 _LOGGER.debug(
                     "WebSocket connection to %s failed: %s; retrying in %ds",
                     ws_url, err, retry_delay,

@@ -1,7 +1,8 @@
 """Voice sentences registered by the integration itself (no automation).
 
 Runs the real conversation agent of the harness's HA release over the
-sentences voice.py registers, with the agent API mocked.
+sentences voice.py registers, with the agent API mocked. A match ends in
+the action's intent, the same code path the LLM tools take.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from homeassistant.components.conversation import get_agent_manager
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import intent
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 DOMAIN = "boiler_room"
@@ -51,6 +53,44 @@ async def test_power_by_voice_names_the_device(hass: HomeAssistant, entry, agent
         assert await say(hass, "Suspend the deck") == "Suspending deck."
         power.assert_awaited_once_with("suspend")
         assert await say(hass, "put the steam machine to sleep") == "Suspending deck."
+
+
+async def test_a_match_is_handled_by_the_intent(hass: HomeAssistant, entry, agent_online):
+    """The trigger lane owns no command logic: it calls the action's intent."""
+    await setup(hass, entry)
+    with (
+        patch("custom_components.boiler_room.BoilerRoomAPI.power_action", AsyncMock(return_value={})),
+        patch("custom_components.boiler_room.voice.intent.async_handle", wraps=intent.async_handle) as handle,
+    ):
+        assert await say(hass, "Reboot the deck") == "Rebooting deck."
+    handle.assert_awaited_once()
+    args, kwargs = handle.await_args
+    assert args[1:3] == ("boiler_room", "BoilerRoomPower")
+    assert args[3] == {"action": {"value": "reboot"}, "device": {"value": entry.entry_id}}
+    assert kwargs["text_input"] == "Reboot the deck"
+
+
+async def test_conversation_process_round_trip(hass: HomeAssistant, entry, agent_online):
+    """What a dashboard or script calls: conversation.process on the HA agent."""
+    await setup(hass, entry)
+    with patch(
+        "custom_components.boiler_room.BoilerRoomAPI.launch", AsyncMock(return_value={"status": "launching"})
+    ) as launch:
+        result = await hass.services.async_call(
+            "conversation",
+            "process",
+            {"text": "launch balatro", "agent_id": "conversation.home_assistant"},
+            blocking=True,
+            return_response=True,
+        )
+    launch.assert_awaited_once_with(appid="1")
+    assert result["response"]["speech"]["plain"]["speech"] == "Launching Balatro."
+
+
+async def test_handler_failure_is_spoken_not_raised(hass: HomeAssistant, entry, agent_online):
+    await setup(hass, entry)
+    with patch("custom_components.boiler_room.BoilerRoomAPI.power_action", AsyncMock(side_effect=RuntimeError("bug"))):
+        assert await say(hass, "Reboot the deck") == "Sorry, that did not work. Check the Boiler Room log."
 
 
 async def test_generic_launch_targets_the_only_device(hass: HomeAssistant, entry, agent_online):
@@ -138,6 +178,7 @@ async def test_unload_unregisters_everything(hass: HomeAssistant, entry, agent_o
     await hass.async_block_till_done()
     assert get_agent_manager(hass).trigger_sentences == []
     assert not hass.services.has_service(DOMAIN, "power")
+    assert not [h for h in intent.async_get(hass) if h.intent_type.startswith("BoilerRoom")]
 
 
 async def test_legacy_automation_button_is_removed(hass: HomeAssistant, entry, agent_online):

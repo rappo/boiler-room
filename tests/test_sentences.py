@@ -1,4 +1,5 @@
 import unittest
+from typing import ClassVar
 
 from core.sentences import (
     DEFAULT_NICKNAMES,
@@ -13,13 +14,13 @@ from core.sentences import (
     HANDLER_WAKE,
     HANDLER_YOUTUBE_SEARCH,
     HANDLERS,
-    SLOT_TO_KWARG,
+    SLOT_TO_FIELD,
     Command,
     build_commands,
     by_template,
     clean_nickname,
     default_nicknames,
-    handler_arguments,
+    intent_slots,
     match_device,
     nicknames_text,
     parse_nicknames,
@@ -101,7 +102,7 @@ class SharedNicknameTest(unittest.TestCase):
 
 
 class MatchDeviceTest(unittest.TestCase):
-    NAMES = {
+    NAMES: ClassVar[dict[str, list[str]]] = {
         "entry_a": ["steamdeck", "deck", "Steam Deck"],
         "entry_b": ["living room pc", "gaming pc"],
     }
@@ -114,6 +115,15 @@ class MatchDeviceTest(unittest.TestCase):
 
     def test_ambiguous_substring_is_none(self):
         self.assertIsNone(match_device("pc", {"a": ["gaming pc"], "b": ["living room pc"]}))
+
+    def test_own_name_beats_another_devices_nickname(self):
+        # Device A is named "deck"; B lists "deck" as a default nickname.
+        names = {"a": ["deck", "steam machine"], "b": ["living room pc", "deck", "steam machine"]}
+        own = {"a": "Deck", "b": "living room pc"}
+        self.assertIsNone(match_device("deck", names))
+        self.assertEqual(match_device("Deck", names, own), "a")
+        self.assertIsNone(match_device("steam machine", names, own))
+        self.assertEqual(match_device("living room", names, own), "b")
 
     def test_unknown_and_empty(self):
         self.assertIsNone(match_device("toaster", self.NAMES))
@@ -135,7 +145,7 @@ class BuildCommandsTest(unittest.TestCase):
     def test_slots_match_handler_keywords(self):
         for command in build_commands(ONE):
             for slot in command.slots:
-                self.assertIn(slot, SLOT_TO_KWARG, command.template)
+                self.assertIn(slot, SLOT_TO_FIELD, command.template)
 
     def test_single_device_gets_its_nicknames_inlined(self):
         commands = build_commands(ONE)
@@ -183,31 +193,31 @@ class BuildCommandsTest(unittest.TestCase):
         self.assertLess(first_device, first_generic)
 
 
-class HandlerArgumentsTest(unittest.TestCase):
+class IntentSlotsTest(unittest.TestCase):
     def test_static_params_plus_slots(self):
-        command = Command("x {query}", HANDLER_JELLYFIN_PLAY, {"media_type": "Movie"})
+        command = Command("x {query}", HANDLER_JELLYFIN_PLAY, {"type": "Movie"})
         self.assertEqual(
-            handler_arguments(command, {"query": " Fargo "}),
-            {"media_type": "Movie", "query": "Fargo"},
+            intent_slots(command, {"query": " Fargo "}),
+            {"type": "Movie", "query": "Fargo"},
         )
 
     def test_volume_becomes_int(self):
         command = Command("volume {volume}", HANDLER_SET_VOLUME)
-        self.assertEqual(handler_arguments(command, {"volume": "50"}), {"level": 50})
+        self.assertEqual(intent_slots(command, {"volume": "50"}), {"level": 50})
 
     def test_bad_volume_raises(self):
         command = Command("volume {volume}", HANDLER_SET_VOLUME)
         with self.assertRaises(ValueError):
-            handler_arguments(command, {"volume": "loud"})
+            intent_slots(command, {"volume": "loud"})
         with self.assertRaises(ValueError):
-            handler_arguments(command, {"volume": "150"})
+            intent_slots(command, {"volume": "150"})
 
     def test_missing_or_empty_slot_raises(self):
         command = Command("play {game_name}", HANDLER_LAUNCH_GAME)
         with self.assertRaises(ValueError):
-            handler_arguments(command, {})
+            intent_slots(command, {})
         with self.assertRaises(ValueError):
-            handler_arguments(command, {"game_name": "  "})
+            intent_slots(command, {"game_name": "  "})
 
 
 @unittest.skipUnless(recognize_all, "hassil not installed")
@@ -251,7 +261,7 @@ class HassilMatchingTest(unittest.TestCase):
         for result in recognize_all(text, self.intents):
             command = self.index[result.intent_sentence.text]
             slots = {k: v.value for k, v in result.entities.items()}
-            return command, handler_arguments(command, slots)
+            return command, intent_slots(command, slots)
         return None, None
 
     def assertRoutes(self, text, handler, entry_id, **kwargs):
@@ -284,10 +294,16 @@ class HassilMatchingTest(unittest.TestCase):
 
     def test_jellyfin_beats_the_generic_launcher(self):
         self.assertRoutes("Play Robocop on Jellyfin", HANDLER_JELLYFIN_PLAY, None, query="Robocop")
-        self.assertRoutes("Play the movie Fargo on Jellyfin", HANDLER_JELLYFIN_PLAY, None, query="Fargo", media_type="Movie")
-        self.assertRoutes("Listen to the album Abbey Road in jelly fin", HANDLER_JELLYFIN_PLAY, None, query="Abbey Road", media_type="MusicAlbum")
+        self.assertRoutes("Play the movie Fargo on Jellyfin", HANDLER_JELLYFIN_PLAY, None, query="Fargo", type="Movie")
+        self.assertRoutes("Play the album Abbey Road in jelly fin", HANDLER_JELLYFIN_PLAY, None, query="Abbey Road", type="MusicAlbum")
         self.assertRoutes("Show me Taskmaster on Jellyfin", HANDLER_JELLYFIN_BROWSE, None, query="Taskmaster")
-        self.assertRoutes("Look up the show Breaking Bad on Jellyfin", HANDLER_JELLYFIN_BROWSE, None, query="Breaking Bad", media_type="Series")
+        self.assertRoutes("Find the show Breaking Bad on Jellyfin", HANDLER_JELLYFIN_BROWSE, None, query="Breaking Bad", type="Series")
+
+    def test_pruned_phrasings_fall_through_to_the_untyped_forms(self):
+        """Forms outside the README's tables are the LLM lane's job now."""
+        self.assertRoutes("Listen to the album Abbey Road on Jellyfin", HANDLER_JELLYFIN_PLAY, None, query="the album Abbey Road")
+        self.assertRoutes("Look up the show Breaking Bad on Jellyfin", HANDLER_JELLYFIN_BROWSE, None, query="the show Breaking Bad")
+        self.assertEqual(self.first_match("Change the volume to 30"), (None, None))
 
     def test_playback_controls(self):
         self.assertRoutes("Pause Jellyfin", HANDLER_JELLYFIN_CONTROL, None, action="pause")
