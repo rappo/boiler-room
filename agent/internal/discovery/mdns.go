@@ -21,12 +21,12 @@ func Advertise(deviceName string, port int, deviceID string, version string) (fu
 	}
 
 	server, err := zeroconf.Register(
-		hostname,                   // Instance name
-		"_boiler-room._tcp",        // Service type
-		"local.",                   // Domain
-		port,                       // Port
-		txt,                        // TXT records
-		nil,                        // Interfaces (nil = all)
+		hostname,            // Instance name
+		"_boiler-room._tcp", // Service type
+		"local.",            // Domain
+		port,                // Port
+		txt,                 // TXT records
+		nil,                 // Interfaces (nil = all)
 	)
 	if err != nil {
 		return nil, err

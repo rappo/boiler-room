@@ -68,4 +68,3 @@ func LaunchByName(scanner *Scanner, query string) (*Game, error) {
 
 	return game, nil
 }
-

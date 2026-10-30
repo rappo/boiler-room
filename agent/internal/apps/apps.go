@@ -11,10 +11,10 @@ import (
 
 // App represents an installed non-Steam application (Flatpak, etc.)
 type App struct {
-	ID          string `json:"id"`           // e.g., "com.github.iwalton3.jellyfin-media-player"
-	Name        string `json:"name"`         // e.g., "Jellyfin Media Player"
-	Type        string `json:"type"`         // "flatpak"
-	Description string `json:"description"`  // Short description
+	ID          string `json:"id"`          // e.g., "com.github.iwalton3.jellyfin-media-player"
+	Name        string `json:"name"`        // e.g., "Jellyfin Media Player"
+	Type        string `json:"type"`        // "flatpak"
+	Description string `json:"description"` // Short description
 	Version     string `json:"version"`
 }
 
@@ -195,19 +195,19 @@ func FindFlatpakByName(apps []App, query string) *App {
 // WellKnownApps maps common names to Flatpak IDs for voice commands.
 // This allows "open jellyfin" to match even without fuzzy search.
 var WellKnownApps = map[string]string{
-	"jellyfin":     "com.github.iwalton3.jellyfin-media-player",
-	"firefox":      "org.mozilla.firefox",
-	"chrome":       "com.google.Chrome",
-	"chromium":     "org.chromium.Chromium",
-	"spotify":      "com.spotify.Client",
-	"discord":      "com.discordapp.Discord",
-	"vlc":          "org.videolan.VLC",
-	"kodi":         "tv.kodi.Kodi",
-	"retroarch":    "org.libretro.RetroArch",
-	"moonlight":    "com.moonlight_stream.Moonlight",
-	"bottles":      "com.usebottles.bottles",
-	"heroic":       "com.heroicgameslauncher.hgl",
-	"lutris":       "net.lutris.Lutris",
+	"jellyfin":  "com.github.iwalton3.jellyfin-media-player",
+	"firefox":   "org.mozilla.firefox",
+	"chrome":    "com.google.Chrome",
+	"chromium":  "org.chromium.Chromium",
+	"spotify":   "com.spotify.Client",
+	"discord":   "com.discordapp.Discord",
+	"vlc":       "org.videolan.VLC",
+	"kodi":      "tv.kodi.Kodi",
+	"retroarch": "org.libretro.RetroArch",
+	"moonlight": "com.moonlight_stream.Moonlight",
+	"bottles":   "com.usebottles.bottles",
+	"heroic":    "com.heroicgameslauncher.hgl",
+	"lutris":    "net.lutris.Lutris",
 }
 
 // ToJSON serializes apps to JSON (for caching)

@@ -12,12 +12,12 @@ import (
 
 // WSHub manages WebSocket connections and broadcasts state changes.
 type WSHub struct {
-	mu          sync.RWMutex
-	clients     map[*wsClient]bool
-	broadcast   chan StateEvent
-	register    chan *wsClient
-	unregister  chan *wsClient
-	upgrader    websocket.Upgrader
+	mu         sync.RWMutex
+	clients    map[*wsClient]bool
+	broadcast  chan StateEvent
+	register   chan *wsClient
+	unregister chan *wsClient
+	upgrader   websocket.Upgrader
 }
 
 // StateEvent is a real-time state update pushed to connected clients.
@@ -182,4 +182,3 @@ func (h *WSHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 }
-

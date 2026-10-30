@@ -219,9 +219,10 @@ func skipContainer(r *vdfReader) {
 
 // extractFlatpakID extracts a Flatpak application ID from a shortcut exe string.
 // Steam shortcuts store the exe in various formats:
-//   "/usr/bin/flatpak run com.github.iwalton3.jellyfin-media-player"
-//   "run" "--branch=stable" "--arch=x86_64" "--command=..." "org.jellyfin.JellyfinDesktop"
-//   "/home/deck/game.sh" → "" (not a Flatpak)
+//
+//	"/usr/bin/flatpak run com.github.iwalton3.jellyfin-media-player"
+//	"run" "--branch=stable" "--arch=x86_64" "--command=..." "org.jellyfin.JellyfinDesktop"
+//	"/home/deck/game.sh" → "" (not a Flatpak)
 //
 // Strategy: find any token that looks like a reverse-DNS Flatpak ID (2+ dots).
 func extractFlatpakID(exe string) string {
@@ -315,4 +316,3 @@ func (r *vdfReader) readInt32() int32 {
 	r.pos += 4
 	return val
 }
-

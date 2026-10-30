@@ -22,8 +22,8 @@ import (
 // RecentLaunch tracks a recently launched game or app.
 type RecentLaunch struct {
 	Name      string `json:"name"`
-	ID        string `json:"id"`      // AppID or FlatpakID
-	Type      string `json:"type"`    // "game", "app", "shortcut"
+	ID        string `json:"id"`   // AppID or FlatpakID
+	Type      string `json:"type"` // "game", "app", "shortcut"
 	Timestamp int64  `json:"timestamp"`
 }
 
@@ -41,7 +41,7 @@ type Server struct {
 	deviceName    string
 	version       string
 
-	recentMu      sync.Mutex
+	recentMu       sync.Mutex
 	recentLaunches []RecentLaunch
 }
 
@@ -467,7 +467,7 @@ type sensorsResponse struct {
 	GPUTemp         float64   `json:"gpu_temp"`
 	AmbientTemp     float64   `json:"ambient_temp"`
 	Volume          int       `json:"volume"`
-	BatteryLevel    int       `json:"battery_level"`    // -1 if no battery
+	BatteryLevel    int       `json:"battery_level"` // -1 if no battery
 	BatteryCharging bool      `json:"battery_charging"`
 	Disk            diskUsage `json:"disk"`
 	HomeSizeGB      float64   `json:"home_size_gb"`
@@ -711,7 +711,7 @@ func (s *Server) handleSessionMode(w http.ResponseWriter, r *http.Request) {
 // --- Steam Users ---
 
 type usersResponse struct {
-	ActiveUser string        `json:"active_user"`
+	ActiveUser string             `json:"active_user"`
 	Users      []system.SteamUser `json:"users"`
 }
 
@@ -864,4 +864,3 @@ func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
 func (s *Server) writeError(w http.ResponseWriter, status int, msg string) {
 	s.writeJSON(w, status, map[string]string{"status": "error", "message": msg})
 }
-

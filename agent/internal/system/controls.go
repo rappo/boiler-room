@@ -406,17 +406,17 @@ func classifyWindow(title string, gameNames map[string]string) ActiveAppInfo {
 
 	// Check for known app patterns
 	knownApps := map[string]string{
-		"jellyfin":    "Jellyfin",
-		"firefox":     "Firefox",
-		"chrome":      "Chrome",
-		"chromium":    "Chromium",
-		"vacuumtube":  "VacuumTube",
-		"kodi":        "Kodi",
-		"retroarch":   "RetroArch",
-		"konsole":     "Konsole",
-		"dolphin":     "Dolphin",
-		"feishin":     "Feishin",
-		"spotify":     "Spotify",
+		"jellyfin":   "Jellyfin",
+		"firefox":    "Firefox",
+		"chrome":     "Chrome",
+		"chromium":   "Chromium",
+		"vacuumtube": "VacuumTube",
+		"kodi":       "Kodi",
+		"retroarch":  "RetroArch",
+		"konsole":    "Konsole",
+		"dolphin":    "Dolphin",
+		"feishin":    "Feishin",
+		"spotify":    "Spotify",
 	}
 
 	for keyword, appName := range knownApps {
