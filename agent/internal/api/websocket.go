@@ -57,17 +57,24 @@ func (h *WSHub) run() {
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = true
+			n := len(h.clients)
 			h.mu.Unlock()
-			log.Printf("WebSocket: client connected (%d total)", len(h.clients))
+			log.Printf("WebSocket: client connected (%d total)", n)
 
 		case client := <-h.unregister:
+			// Both the reader and the writer goroutine unregister on exit;
+			// only the first one finds the client and logs.
 			h.mu.Lock()
-			if _, ok := h.clients[client]; ok {
+			_, ok := h.clients[client]
+			if ok {
 				delete(h.clients, client)
 				close(client.send)
 			}
+			n := len(h.clients)
 			h.mu.Unlock()
-			log.Printf("WebSocket: client disconnected (%d total)", len(h.clients))
+			if ok {
+				log.Printf("WebSocket: client disconnected (%d total)", n)
+			}
 
 		case event := <-h.broadcast:
 			data, err := json.Marshal(event)
