@@ -162,13 +162,14 @@ Boiler Room is running!
 
 ### Step 2: Add the integration in Home Assistant
 
-1. Copy `integration/custom_components/boiler_room/` to your HA config's `custom_components/` directory
-2. Copy `integration/custom_components/boiler_room/custom_sentences/en/boiler_room.yaml` to `<HA config>/custom_sentences/en/boiler_room.yaml`
-3. Restart Home Assistant
-4. Go to **Settings > Devices & Services > Add Integration**
-5. Search for **Boiler Room**
-6. If your device is on the same network, it may be auto-discovered. Otherwise, enter the IP address.
-7. Confirm the device — you'll see your game count and device name
+1. Copy `custom_components/boiler_room/` to your HA config's `custom_components/` directory (or install it through HACS)
+2. Restart Home Assistant
+3. Go to **Settings > Devices & Services > Add Integration**
+4. Search for **Boiler Room**
+5. If your device is on the same network, it may be auto-discovered. Otherwise, enter the IP address.
+6. Confirm the device — you'll see your game count and device name
+
+Voice commands work as soon as the device is added: the integration registers its sentences with Assist itself (see [Voice Commands](#voice-commands)).
 
 ### Step 3: Configure Jellyfin (optional)
 
@@ -278,360 +279,77 @@ The HA integration uses these events to update `sensor.<device>_power_state` ins
 
 ## Voice Commands
 
-Voice commands work through **HA automations** backed by **Boiler Room services**. The integration ships 3 pre-built automations you can create with one button press — fully editable in the HA UI.
+Voice commands need **no setup**. When a device is added, the integration registers its sentences with Assist directly (the same conversation-trigger API HA's automations use), so there is no automation to create, no blueprint to import and no sentence file to copy. Say any of the sentences below to a voice satellite, the app, or the Assist text box.
 
-### Quick Setup
+### Device nicknames
 
-**Option A: One-click** — Press the **"Create Voice Automations"** button on your Boiler Room device page. This writes 3 automations to your `automations.yaml` and reloads — they appear instantly in Settings → Automations, fully editable.
+Sentences that name the device accept any of its **nicknames**. By default a device answers to its own name (as the agent reports it, e.g. `steamdeck`) plus `deck`, `steam machine` and `gaming pc`. Change them under **Settings → Integrations → Boiler Room → Configure → Voice nicknames** (comma-separated); the sentences update immediately.
 
-**Option B: Copy-paste** — Create automations manually using the YAML below. Go to Settings → Automations → Create Automation → ⋮ → Edit in YAML, paste, and save.
+With **one device**, sentences without a device name ("Launch Balatro", "Set volume to 30") target it. With **two or more devices**, say the nickname ("Launch Balatro on the living room pc"); a nickname shared by several devices, or a sentence with no device, makes Assist ask which one you mean. Give each device a distinct nickname to avoid the question.
 
-<details>
-<summary><strong>System Controls</strong> — wake, suspend, shutdown, reboot, volume</summary>
+### System controls
 
-```yaml
-alias: "Boiler Room: System Controls"
-description: "Voice commands for SteamOS device power and volume control."
-mode: single
-triggers:
-  - trigger: conversation
-    command:
-      - "(Wake up|Turn on|Power on) the (deck|steam machine|gaming pc)"
-    id: wake
-  - trigger: conversation
-    command:
-      - "(Suspend|Sleep) the (deck|steam machine|gaming pc)"
-      - "Put the (deck|steam machine|gaming pc) to sleep"
-    id: suspend
-  - trigger: conversation
-    command:
-      - "(Turn off|Shut down|Shutdown|Power off) the (deck|steam machine|gaming pc)"
-    id: shutdown
-  - trigger: conversation
-    command:
-      - "(Reboot|Restart) the (deck|steam machine|gaming pc)"
-    id: reboot
-  - trigger: conversation
-    command:
-      - "(Set|Change) [the] (deck|steam machine|gaming pc) volume to {volume}"
-      - "Volume {volume} [on] [the] (deck|steam machine|gaming pc)"
-    id: volume
-actions:
-  - choose:
-      - conditions:
-          - condition: trigger
-            id: wake
-        sequence:
-          - action: boiler_room.wake
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: suspend
-        sequence:
-          - action: boiler_room.power
-            data:
-              action: suspend
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: shutdown
-        sequence:
-          - action: boiler_room.power
-            data:
-              action: shutdown
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: reboot
-        sequence:
-          - action: boiler_room.power
-            data:
-              action: reboot
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: volume
-        sequence:
-          - action: boiler_room.set_volume
-            data:
-              level: "{{ trigger.slots.volume | int(50) }}"
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-```
-
-</details>
-
-<details>
-<summary><strong>Games & Apps</strong> — launch games and Flatpak apps by voice</summary>
-
-```yaml
-alias: "Boiler Room: Games & Apps"
-description: "Voice commands for launching Steam games and apps on your SteamOS device."
-mode: single
-triggers:
-  - trigger: conversation
-    command:
-      - "(Launch|Play|Start|Open|Run|Boot up|Fire up) {game_name}"
-      - "Put on {game_name}"
-      - "(Launch|Play|Start|Open|Run) {game_name} on the (deck|steam machine|tv|living room|gaming pc)"
-    id: launch_game
-  - trigger: conversation
-    command:
-      - "Open {app_name} on the (deck|steam machine|tv|living room|gaming pc)"
-      - "(Launch|Start) the {app_name} app"
-    id: launch_app
-actions:
-  - choose:
-      - conditions:
-          - condition: trigger
-            id: launch_game
-        sequence:
-          - action: boiler_room.launch_game
-            data:
-              name: "{{ trigger.slots.game_name }}"
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: launch_app
-        sequence:
-          - action: boiler_room.launch_app
-            data:
-              name: "{{ trigger.slots.app_name }}"
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-```
-
-</details>
-
-<details>
-<summary><strong>Jellyfin Media</strong> — play, browse, control playback, YouTube</summary>
-
-```yaml
-alias: "Boiler Room: Jellyfin Media"
-description: "Voice commands for Jellyfin media playback, browsing, and YouTube."
-mode: single
-triggers:
-  - trigger: conversation
-    command:
-      - "(Play|Watch|Listen to|Put on) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
-    id: jellyfin_play
-  - trigger: conversation
-    command:
-      - "(Play|Watch|Put on) the movie {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
-    id: jellyfin_play_movie
-  - trigger: conversation
-    command:
-      - "(Play|Watch|Put on) the (show|series|tv show) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
-    id: jellyfin_play_series
-  - trigger: conversation
-    command:
-      - "(Play|Listen to|Put on) the album {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
-    id: jellyfin_play_album
-  - trigger: conversation
-    command:
-      - "(Play|Listen to|Put on) the song {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
-    id: jellyfin_play_song
-  - trigger: conversation
-    command:
-      - "(Show me|Browse|Look up) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
-      - "(Show|Browse|Find|Look up|Go to) the movie {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
-      - "(Show|Browse|Find|Look up|Go to) the (show|series|tv show) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
-      - "(Show|Browse|Find|Look up|Go to) the (album|artist|band) {query} (on|in) (Jellyfin|Jelly Fin|Jellyfish|jelly fin)"
-    id: jellyfin_browse
-  - trigger: conversation
-    command:
-      - "(Pause|Resume|Unpause) (Jellyfin|Jelly Fin|Jellyfish|jelly fin|the stream|playback)"
-    id: jellyfin_pause
-  - trigger: conversation
-    command:
-      - "(Stop) (Jellyfin|Jelly Fin|Jellyfish|jelly fin|the stream|playback)"
-    id: jellyfin_stop
-  - trigger: conversation
-    command:
-      - "(Rewind|Go back|Skip back) (Jellyfin|Jelly Fin|Jellyfish|jelly fin|the stream|playback)"
-    id: jellyfin_rewind
-  - trigger: conversation
-    command:
-      - "(Fast forward|Skip forward|Skip ahead) (Jellyfin|Jelly Fin|Jellyfish|jelly fin|the stream|playback)"
-    id: jellyfin_ff
-  - trigger: conversation
-    command:
-      - "Search YouTube for {query}"
-      - "(Open|Play|Watch) {query} on YouTube"
-    id: youtube
-actions:
-  - choose:
-      - conditions:
-          - condition: trigger
-            id: jellyfin_play
-        sequence:
-          - action: boiler_room.jellyfin_play
-            data:
-              query: "{{ trigger.slots.query }}"
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: jellyfin_play_movie
-        sequence:
-          - action: boiler_room.jellyfin_play
-            data:
-              query: "{{ trigger.slots.query }}"
-              type: Movie
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: jellyfin_play_series
-        sequence:
-          - action: boiler_room.jellyfin_play
-            data:
-              query: "{{ trigger.slots.query }}"
-              type: Series
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: jellyfin_play_album
-        sequence:
-          - action: boiler_room.jellyfin_play
-            data:
-              query: "{{ trigger.slots.query }}"
-              type: MusicAlbum
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: jellyfin_play_song
-        sequence:
-          - action: boiler_room.jellyfin_play
-            data:
-              query: "{{ trigger.slots.query }}"
-              type: Audio
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: jellyfin_browse
-        sequence:
-          - action: boiler_room.jellyfin_browse
-            data:
-              query: "{{ trigger.slots.query }}"
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: jellyfin_pause
-        sequence:
-          - action: boiler_room.jellyfin_control
-            data:
-              action: pause
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: jellyfin_stop
-        sequence:
-          - action: boiler_room.jellyfin_control
-            data:
-              action: stop
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: jellyfin_rewind
-        sequence:
-          - action: boiler_room.jellyfin_control
-            data:
-              action: rewind
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: jellyfin_ff
-        sequence:
-          - action: boiler_room.jellyfin_control
-            data:
-              action: fastforward
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-      - conditions:
-          - condition: trigger
-            id: youtube
-        sequence:
-          - action: boiler_room.youtube_search
-            data:
-              query: "{{ trigger.slots.query }}"
-            response_variable: result
-          - set_conversation_response: "{{ result.speech | default("Command sent.") }}"
-```
-
-</details>
-
-### Available Voice Commands
-
-#### System Controls
-
-| Sentence | What It Does |
+| Sentence | What it does |
 |---|---|
-| `Wake up the steam machine` | Sends Wake-on-LAN magic packet |
-| `Suspend / Sleep the deck` | Suspends the device |
-| `Put the steam machine to sleep` | Suspends the device |
-| `Turn off / Shut down the deck` | Shuts down the device |
-| `Reboot / Restart the steam machine` | Reboots the device |
-| `Set volume to 50` | Sets volume (0–100) |
+| `Wake up / Turn on / Power on the <device>` | Sends a Wake-on-LAN magic packet |
+| `Suspend / Sleep the <device>` · `Put the <device> to sleep` | Suspends the device |
+| `Turn off / Shut down / Power off the <device>` | Shuts down the device |
+| `Reboot / Restart the <device>` | Reboots the device |
+| `Set the <device> volume to 50` · `Volume 50 on the <device>` · `Set volume to 50` | Sets volume (0–100) |
 
-#### Games & Apps
+### Games and apps
 
-| Sentence | What It Does |
+| Sentence | What it does |
 |---|---|
-| `Launch Baldur's Gate 3` | Fuzzy match + launch game |
-| `Play / Start / Open / Run / Boot up {name}` | Aliases work too (e.g., "bg3") |
-| `Launch {name} on the deck` | Target a specific device |
-| `Open YouTube on the deck` | Launch a Flatpak app (checks aliases first) |
-| `Launch the Firefox app` | Launch by app name |
+| `Launch / Play / Start / Open / Run / Boot up / Fire up <game>` | Fuzzy match and launch (aliases work: "bg3") |
+| `Put on <game>` | Same |
+| `Play <game> on the <device>` | Same, on a named device |
+| `Launch / Start / Open the <app> app` | Launch a Flatpak app (your app aliases are checked first) |
+| `Open the <app> app on the <device>` | Same, on a named device |
 
-#### Jellyfin Media
+A game sentence that matches no game falls back to apps, and vice versa.
 
-| Sentence | What It Does |
+### Jellyfin media
+
+Jellyfin sentences target the device whose options have Jellyfin configured. `Jelly Fin`, `Jellyfish` and `jelly fin` are accepted spellings for what speech-to-text makes of "Jellyfin".
+
+| Sentence | What it does |
 |---|---|
-| `Play {query} on Jellyfin` | Search + play top result |
-| `Play the movie Fargo on Jellyfin` | With type hint to disambiguate |
-| `Play the show / series {query} on Jellyfin` | Series-specific search |
-| `Play the album {query} on Jellyfin` | Album-specific search |
-| `Play the song {query} on Jellyfin` | Song-specific search |
-| `Show me {query} on Jellyfin` | Navigate to item (no playback) |
-| `Pause / Resume Jellyfin` | Toggle playback |
-| `Stop Jellyfin` | Stop playback |
-| `Rewind / Skip back` | Seek backward |
-| `Fast forward / Skip ahead` | Seek forward |
-| `Search YouTube for {query}` | Open YouTube search on device |
-| `Play {query} on YouTube` | Open YouTube with query |
+| `Play / Watch / Listen to / Put on <query> on Jellyfin` | Search and play the top result |
+| `Play the movie <query> on Jellyfin` | Movie only |
+| `Play the show / series <query> on Jellyfin` | Series only |
+| `Play the album <query> on Jellyfin` | Album only |
+| `Play the song <query> on Jellyfin` | Song only |
+| `Show me / Browse / Look up <query> on Jellyfin` | Open the item's page without playing |
+| `Show / Find the movie / show / album / artist <query> on Jellyfin` | Same, with a type hint |
+| `Pause Jellyfin / playback / the stream` | Pause |
+| `Resume / Unpause Jellyfin` | Resume |
+| `Stop Jellyfin` | Stop |
+| `Rewind / Go back / Skip back Jellyfin` | Seek backward |
+| `Fast forward / Skip forward / Skip ahead Jellyfin` | Seek forward |
+| `Search YouTube for <query>` · `Play <query> on YouTube` | Open a YouTube search on the device |
 
-> **Device aliases:** `deck`, `steam machine`, `tv`, `living room`, and `gaming pc` are interchangeable in all commands. Edit the automation to add your own.
+### Upgrading from the automation-based setup
+
+Versions before 2026.10.29.1 shipped a **Create Voice Automations** button that wrote three automations to your `automations.yaml`. Those automations keep working, but now Boiler Room answers the same sentences itself, so each command would run twice and Assist may answer twice. If you pressed that button, delete the three automations named `Boiler Room: System Controls`, `Boiler Room: Games & Apps` and `Boiler Room: Jellyfin Media` (ids `boiler_room_system_controls`, `boiler_room_games_and_apps`, `boiler_room_jellyfin_media`) in **Settings → Automations**, or remove them from `automations.yaml` and reload automations. The blueprints under `blueprints/automation/boiler_room/`, if you imported them, can go too. The button entity itself is removed from the registry on the first start of the new version.
 
 ### Services
 
-All voice logic is exposed as standard HA services, callable from automations, scripts, or Developer Tools:
+The same handlers behind the voice commands are exposed as HA services, callable from automations, scripts, or Developer Tools. Every service takes an optional `device` (a nickname, the device name or the entry title); without it the first device that was reached is used.
 
 | Service | Parameters |
 |---|---|
-| `boiler_room.launch_game` | `name`, optional `device` |
-| `boiler_room.launch_app` | `name`, optional `device` |
-| `boiler_room.jellyfin_play` | `query`, optional `type` |
+| `boiler_room.launch_game` | `name` |
+| `boiler_room.launch_app` | `name` |
+| `boiler_room.jellyfin_play` | `query`, optional `type` (Movie, Series, Audio, MusicAlbum, Episode) |
 | `boiler_room.jellyfin_browse` | `query`, optional `type` |
 | `boiler_room.jellyfin_control` | `action` (pause/unpause/stop/rewind/fastforward) |
-| `boiler_room.youtube_search` | `query`, optional `device` |
+| `boiler_room.youtube_search` | `query` |
 | `boiler_room.power` | `action` (suspend/shutdown/reboot) |
-| `boiler_room.wake` | optional `device` |
+| `boiler_room.wake` | — |
 | `boiler_room.set_volume` | `level` (0–100) |
 
-All services return a `speech` response variable for use with `set_conversation_response`.
+All services return a response with a `speech` key, for `set_conversation_response` in your own automations.
 
 ### Jellyfin Phonetic Matching
 
@@ -647,7 +365,10 @@ If Jellyfin voice caching is enabled (Settings → Integrations → Boiler Room 
 ## Troubleshooting
 
 ### Voice command not recognized
-Make sure you imported the blueprint **and** created an automation from it. The blueprint alone doesn't do anything — you need to create an automation that uses it.
+The sentences are registered when the integration loads, so check that the device shows as loaded under Settings → Integrations and that Assist is using the Home Assistant conversation agent (sentence triggers only fire there, not inside an LLM agent that is set to never use HA intents). Enable debug logging for `custom_components.boiler_room` to see "Registered N voice sentences" and, per command, which handler a sentence was routed to. If a sentence names a device, the word you use must be one of its voice nicknames (Configure → Voice nicknames).
+
+### Assist answers twice
+You still have the automations the old **Create Voice Automations** button created. Delete them; see [Upgrading from the automation-based setup](#upgrading-from-the-automation-based-setup).
 
 ### WoL button is disabled
 The WoL button should always be available. If it's disabled, restart HA — this was fixed in v0.5.0 by decoupling the WoL button from the coordinator.

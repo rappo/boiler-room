@@ -42,12 +42,13 @@ jobs:
 
       - name: Integration unit tests
         run: |
-          python -m pip install --quiet aiohttp
+          python -m pip install --quiet aiohttp hassil
           python -m unittest discover -s tests -t . -v
 
       - name: Integration tests in the Home Assistant harness
         run: |
           python -m pip install --quiet pytest-homeassistant-custom-component
+          python -m pip install --quiet $(python tests/ha/requirements.py)
           python -m pytest tests/ha -q
 
   build:
