@@ -1,7 +1,10 @@
 {
   "name": "Boiler Room",
   "render_readme": true,
-  "domains": ["media_player", "sensor"],
+  "domains": [
+    "media_player",
+    "sensor"
+  ],
   "iot_class": "local_push",
-  "homeassistant": "2024.1.0"
+  "homeassistant": "2025.2.0"
 }

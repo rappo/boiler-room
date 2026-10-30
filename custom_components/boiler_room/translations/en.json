@@ -22,5 +22,37 @@
     "error": {
       "cannot_connect": "Cannot connect to the agent at the specified address. Make sure you ran the install script on the SteamOS device first."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Boiler Room Settings",
+        "description": "Configure optional integrations for your SteamOS device.",
+        "data": {
+          "jellyfin_url": "Jellyfin Server URL",
+          "jellyfin_api_key": "Jellyfin API Key",
+          "jellyfin_app_id": "Jellyfin Client App (Flatpak ID)",
+          "youtube_app_id": "YouTube Client App (Flatpak ID)",
+          "cache_artists": "Cache artists for voice matching",
+          "cache_albums": "Cache albums for voice matching",
+          "cache_interval": "Cache refresh interval (minutes)",
+          "app_aliases": "App aliases"
+        },
+        "data_description": {
+          "jellyfin_url": "e.g. http://your-server:8096",
+          "jellyfin_api_key": "Generate in Jellyfin Dashboard → API Keys",
+          "jellyfin_app_id": "Default: org.jellyfin.JellyfinDesktop. Use your preferred Flatpak client.",
+          "youtube_app_id": "To find the ID, SSH into your SteamOS device and run: flatpak list --columns=name,application | grep -i tube. Leave empty to use the system browser.",
+          "cache_artists": "Cache artist names from your Jellyfin library so voice commands can match unusual spellings (e.g. deadmau5, Gorillaz)",
+          "cache_albums": "Cache album names for the same phonetic voice matching",
+          "cache_interval": "How often to refresh the cache with new library items, in minutes. Default 30. Range: 5–1440 (24h).",
+          "app_aliases": "Map friendly voice names to Flatpak IDs. One per line or comma-separated. Example: youtube=rocks.shy.VacuumTube, browser=org.mozilla.firefox. Find IDs by running flatpak list on the device."
+        }
+      }
+    },
+    "error": {
+      "jellyfin_auth_failed": "Jellyfin authentication failed. Check your API key.",
+      "jellyfin_connect_failed": "Could not connect to Jellyfin server. Check the URL."
+    }
   }
 }

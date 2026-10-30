@@ -327,8 +327,9 @@ class BoilerRoomHomeSizeSensor(BoilerRoomSensorBase):
 
     _attr_name = "Home Directory Size"
     _attr_icon = "mdi:folder-home"
+    _attr_device_class = SensorDeviceClass.DATA_SIZE
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "GB"
+    _attr_native_unit_of_measurement = UnitOfInformation.GIGABYTES
 
     def __init__(self, coordinator, device_id: str, device_name: str) -> None:
         """Initialize the sensor."""
