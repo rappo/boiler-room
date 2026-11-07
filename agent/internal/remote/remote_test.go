@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -71,11 +72,13 @@ func TestConsumeEmitsConfiguredKeysOnly(t *testing.T) {
 	stream.Write(rawEvent(evKey, 191, 0))
 
 	var got []Event
-	w := &Watcher{Keys: map[uint16]string{191: "volume_up"}, Emit: func(e Event) { got = append(got, e) }}
+	// A long repeat delay: the kernel repeat in the stream must be dropped and
+	// no synthetic one can fire before the release.
+	w := &Watcher{Keys: map[uint16]string{191: "volume_up"}, Emit: func(e Event) { got = append(got, e) }, RepeatDelay: time.Hour}
 	if err := w.consume(&stream); err != io.EOF {
 		t.Fatalf("consume ended with %v, want EOF", err)
 	}
-	want := []Event{{"volume_up", "press"}, {"volume_up", "repeat"}, {"volume_up", "release"}}
+	want := []Event{{"volume_up", "press"}, {"volume_up", "release"}}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -138,7 +141,7 @@ func TestRunReopensAndStops(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events := make(chan Event, 4)
+	events := make(chan Event, 64)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	w := &Watcher{Device: "remote", Keys: map[uint16]string{191: "volume_up"}, Emit: func(e Event) { events <- e },
@@ -171,6 +174,101 @@ func TestRunReopensAndStops(t *testing.T) {
 			}
 		case <-deadline:
 			t.Fatal("the reopened device was not read")
+		}
+	}
+}
+
+type recorder struct {
+	mu     sync.Mutex
+	events []Event
+}
+
+func (r *recorder) emit(e Event) { r.mu.Lock(); r.events = append(r.events, e); r.mu.Unlock() }
+func (r *recorder) get() []Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]Event(nil), r.events...)
+}
+
+func count(events []Event, action string) int {
+	n := 0
+	for _, e := range events {
+		if e.Action == action {
+			n++
+		}
+	}
+	return n
+}
+
+// The Rii sends no kernel repeats: a held key must repeat by itself.
+func TestHeldKeyRepeatsUntilRelease(t *testing.T) {
+	var rec recorder
+	rep := newRepeater(40*time.Millisecond, 20*time.Millisecond, rec.emit)
+	rep.handle(Event{"volume_up", "press"})
+	time.Sleep(150 * time.Millisecond)
+	rep.handle(Event{"volume_up", "release"})
+	got := rec.get()
+	if got[0] != (Event{"volume_up", "press"}) || got[len(got)-1] != (Event{"volume_up", "release"}) {
+		t.Fatalf("want press first and release last, got %v", got)
+	}
+	if n := count(got, "repeat"); n < 3 || n > 7 {
+		t.Errorf("150 ms hold with 40 ms delay and 20 ms interval gave %d repeats, want about 5", n)
+	}
+	time.Sleep(60 * time.Millisecond)
+	if after := rec.get(); len(after) != len(got) {
+		t.Errorf("repeats continued after release: %v", after[len(got):])
+	}
+}
+
+func TestQuickTapDoesNotRepeat(t *testing.T) {
+	var rec recorder
+	rep := newRepeater(100*time.Millisecond, 20*time.Millisecond, rec.emit)
+	rep.handle(Event{"volume_down", "press"})
+	rep.handle(Event{"volume_down", "release"})
+	time.Sleep(150 * time.Millisecond)
+	if got := rec.get(); count(got, "repeat") != 0 || len(got) != 2 {
+		t.Errorf("a tap must be press and release only, got %v", got)
+	}
+}
+
+func TestKernelRepeatsAreDropped(t *testing.T) {
+	var rec recorder
+	rep := newRepeater(time.Hour, time.Hour, rec.emit)
+	rep.handle(Event{"volume_up", "press"})
+	rep.handle(Event{"volume_up", "repeat"})
+	rep.handle(Event{"volume_up", "release"})
+	if got := rec.get(); count(got, "repeat") != 0 {
+		t.Errorf("kernel repeat passed through: %v", got)
+	}
+}
+
+// The device vanishing mid-hold (input-remapper reloading) must stop the repeats.
+func TestStopAllEndsHeldKeys(t *testing.T) {
+	var rec recorder
+	rep := newRepeater(10*time.Millisecond, 10*time.Millisecond, rec.emit)
+	rep.handle(Event{"volume_up", "press"})
+	rep.handle(Event{"volume_down", "press"})
+	time.Sleep(40 * time.Millisecond)
+	rep.stopAll()
+	n := len(rec.get())
+	time.Sleep(40 * time.Millisecond)
+	if len(rec.get()) != n {
+		t.Error("repeats continued after stopAll")
+	}
+}
+
+// Release racing a due repeat: the release must always be the last event.
+func TestReleaseIsAlwaysLast(t *testing.T) {
+	for i := 0; i < 200; i++ {
+		var rec recorder
+		rep := newRepeater(time.Millisecond, time.Millisecond, rec.emit)
+		rep.handle(Event{"volume_up", "press"})
+		time.Sleep(time.Duration(i%5) * time.Millisecond)
+		rep.handle(Event{"volume_up", "release"})
+		rep.stopAll()
+		got := rec.get()
+		if got[len(got)-1].Action != "release" {
+			t.Fatalf("run %d: event after release: %v", i, got[len(got)-3:])
 		}
 	}
 }

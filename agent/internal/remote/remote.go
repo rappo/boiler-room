@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -139,14 +140,113 @@ func eventNumber(path string) int {
 
 // Watcher follows one named device, reopening it when it goes away:
 // input-remapper recreates its virtual devices whenever it reloads.
+//
+// Repeats are the watcher's own. Neither the Rii i25 nor input-remapper's
+// virtual keyboard has EV_REP, so the kernel never repeats their keys and a
+// held key arrived as one press (seen live 2026-11-07: a 1 s hold was one
+// volume step). The watcher drops any kernel repeats and, while a key is
+// held, emits "repeat" after RepeatDelay and then every RepeatInterval, so
+// holding behaves the same on every device.
 type Watcher struct {
 	Device string
 	Keys   map[uint16]string
 	Emit   func(Event)
 
-	SysRoot string        // default /sys
-	DevRoot string        // default /dev
-	Retry   time.Duration // default 5 s
+	SysRoot        string        // default /sys
+	DevRoot        string        // default /dev
+	Retry          time.Duration // default 5 s
+	RepeatDelay    time.Duration // default 400 ms
+	RepeatInterval time.Duration // default 150 ms
+}
+
+const (
+	defaultRepeatDelay    = 400 * time.Millisecond
+	defaultRepeatInterval = 150 * time.Millisecond
+)
+
+// repeater turns press/release into press, repeat..., release.
+type repeater struct {
+	delay, interval time.Duration
+	emit            func(Event)
+
+	mu    sync.Mutex
+	held  map[string]chan struct{} // button -> closed on release
+	group sync.WaitGroup
+}
+
+func newRepeater(delay, interval time.Duration, emit func(Event)) *repeater {
+	if delay <= 0 {
+		delay = defaultRepeatDelay
+	}
+	if interval <= 0 {
+		interval = defaultRepeatInterval
+	}
+	return &repeater{delay: delay, interval: interval, emit: emit, held: map[string]chan struct{}{}}
+}
+
+func (r *repeater) handle(ev Event) {
+	switch ev.Action {
+	case "press":
+		r.stop(ev.Button)
+		r.emit(ev)
+		done := make(chan struct{})
+		r.mu.Lock()
+		r.held[ev.Button] = done
+		r.mu.Unlock()
+		r.group.Add(1)
+		go r.repeat(ev.Button, done)
+	case "release":
+		r.stop(ev.Button)
+		r.emit(ev)
+	}
+	// Kernel repeats are dropped: the repeater makes its own.
+}
+
+func (r *repeater) repeat(button string, done chan struct{}) {
+	defer r.group.Done()
+	timer := time.NewTimer(r.delay)
+	defer timer.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-timer.C:
+			// Emit only while this press is still the held one, checked under
+			// the lock that stop takes: a repeat can then never land after
+			// the release, which would be one step too many.
+			r.mu.Lock()
+			if r.held[button] != done {
+				r.mu.Unlock()
+				return
+			}
+			r.emit(Event{button, "repeat"})
+			r.mu.Unlock()
+			timer.Reset(r.interval)
+		}
+	}
+}
+
+// stop ends the repeats of one button; none can be emitted after it returns.
+func (r *repeater) stop(button string) {
+	r.mu.Lock()
+	done, ok := r.held[button]
+	delete(r.held, button)
+	r.mu.Unlock()
+	if ok {
+		close(done)
+	}
+}
+
+// stopAll ends every held key, for when the device goes away mid-press.
+// It waits for the repeat goroutines, so no repeat follows it.
+func (r *repeater) stopAll() {
+	r.mu.Lock()
+	for button, done := range r.held {
+		close(done)
+		delete(r.held, button)
+	}
+	r.mu.Unlock()
+	r.group.Wait()
 }
 
 // Run blocks until ctx is cancelled.
@@ -197,8 +297,11 @@ func (w *Watcher) read(ctx context.Context, path string) error {
 	return w.consume(f)
 }
 
-// consume reads events until the reader fails.
+// consume reads events until the reader fails. A key still held when the
+// device goes away stops repeating; no release is invented for it.
 func (w *Watcher) consume(r io.Reader) error {
+	rep := newRepeater(w.RepeatDelay, w.RepeatInterval, w.Emit)
+	defer rep.stopAll()
 	buf := make([]byte, eventSize)
 	for {
 		if _, err := io.ReadFull(r, buf); err != nil {
@@ -206,7 +309,7 @@ func (w *Watcher) consume(r io.Reader) error {
 		}
 		typ, code, value := decode(buf)
 		if ev, ok := Translate(w.Keys, typ, code, value); ok {
-			w.Emit(ev)
+			rep.handle(ev)
 		}
 	}
 }
