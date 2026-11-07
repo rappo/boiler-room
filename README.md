@@ -40,6 +40,7 @@ Voice commands work as soon as the device is added. There is nothing to import o
 | YouTube client app | Flatpak ID for YouTube searches. Blank uses the device's browser. |
 | Cache artists / albums, refresh interval | Caches library names for phonetic voice matching (see Jellyfin below). |
 | App aliases | Voice names for Flatpak apps, `name=flatpak.id`, one per line or comma-separated. |
+| Volume buttons control | A media player, such as an AV receiver, that the remote's volume buttons step. Needs `remote_buttons` in the agent config (see Remote buttons below). Empty leaves the buttons as events only. |
 
 ## What you get
 
@@ -169,6 +170,27 @@ Base URL `http://<device-ip>:9451/api/v1`.
 `/health` at the root (no `/api/v1`) answers `ok`, a plain liveness probe.
 
 A WebSocket event looks like `{"type": "power_state_changed", "timestamp": 1716566400, "data": {"power_state": "sleep"}}`. The integration applies it to the Power State sensor at once, which is what makes "turn the TV off when the device sleeps" automations prompt.
+
+A `remote_button` event carries `{"button": "volume_up", "action": "press"}`; `action` is `press`, `repeat` (the key is held) or `release`.
+
+### Remote buttons
+
+The agent can read keys from one input device and push them to Home Assistant, so a remote plugged into the device can control something else, such as an AV receiver's volume with SteamOS left at 100%:
+
+```yaml
+remote_buttons:
+  device: "input-remapper keyboard"   # input device name, as in /proc/bus/input/devices
+  keys:
+    KEY_F21: volume_up
+    KEY_F22: volume_down
+    KEY_F23: volume_mute
+```
+
+Keys are `KEY_` names (`KEY_F13` to `KEY_F24`, `KEY_VOLUMEUP`, `KEY_VOLUMEDOWN`, `KEY_MUTE`) or decimal codes; button names are yours. The agent only reads the device and never grabs it, so whatever else listens still gets the keys. To keep SteamOS from also acting on them, remap them first with [input-remapper](https://github.com/sezanzeb/input-remapper) to keys SteamOS ignores (F13 to F24) and read input-remapper's virtual keyboard, as above. The agent waits for the device and reopens it when input-remapper reloads.
+
+In Home Assistant every key event fires `boiler_room_remote_button` with `entry_id`, `device_id`, `button` and `action`, for automations. If the Volume buttons control option names a media player, `volume_up`, `volume_down` and `volume_mute` also act on it: a held key steps about 7 times a second, and mute toggles on press.
+
+The remote only works while the device is awake.
 
 ## Troubleshooting
 
