@@ -8,6 +8,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
@@ -18,6 +19,7 @@ from .const import (
     CONF_DEVICE_NICKNAMES,
     CONF_HOST,
     CONF_PORT,
+    CONF_VOLUME_BUTTONS_ENTITY,
     DEFAULT_PORT,
     DOMAIN,
 )
@@ -258,6 +260,14 @@ class BoilerRoomOptionsFlow(OptionsFlow):
                         CONF_APP_ALIASES,
                         default=current.get(CONF_APP_ALIASES, ""),
                     ): str,
+                    # suggested_value, not default: a default would come
+                    # back on submit, so the field could never be cleared.
+                    vol.Optional(
+                        CONF_VOLUME_BUTTONS_ENTITY,
+                        description={"suggested_value": current.get(CONF_VOLUME_BUTTONS_ENTITY)},
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="media_player")
+                    ),
                 }
             ),
             errors=errors,

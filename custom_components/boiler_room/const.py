@@ -17,5 +17,12 @@ ZEROCONF_TYPE = "_boiler-room._tcp.local."
 # Update interval (seconds)
 SCAN_INTERVAL = 15
 
+# Options: the media player the remote's volume buttons control. Unset, the
+# buttons only fire boiler_room_remote_button events.
+CONF_VOLUME_BUTTONS_ENTITY = "volume_buttons_entity"
+
+# HA event fired for every remote button event the agent pushes.
+EVENT_REMOTE_BUTTON = f"{DOMAIN}_remote_button"
+
 # Options: comma-separated names a device answers to in voice commands.
 CONF_DEVICE_NICKNAMES = "device_nicknames"

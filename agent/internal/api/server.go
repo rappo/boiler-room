@@ -92,6 +92,11 @@ func NewServer(scanner *games.Scanner, sysInfo *system.Info, pluginMgr *plugins.
 	return s
 }
 
+// Broadcast pushes an event to every connected WebSocket client.
+func (s *Server) Broadcast(event StateEvent) {
+	s.wsHub.Broadcast(event)
+}
+
 // shutdownGrace is how long in-flight requests get after a stop signal.
 // The installed unit has TimeoutStopSec=3, so this stays under it.
 const shutdownGrace = 2 * time.Second

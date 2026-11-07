@@ -37,7 +37,8 @@
           "cache_artists": "Cache artists for voice matching",
           "cache_albums": "Cache albums for voice matching",
           "cache_interval": "Cache refresh interval (minutes)",
-          "app_aliases": "App aliases"
+          "app_aliases": "App aliases",
+          "volume_buttons_entity": "Volume buttons control"
         },
         "data_description": {
           "device_nicknames": "Names this device answers to in voice commands, comma-separated (\"Suspend the deck\"). Leave blank for the defaults: the device name plus deck, steam machine, gaming pc. A nickname two devices share makes Assist ask which one you mean.",
@@ -48,7 +49,8 @@
           "cache_artists": "Cache artist names from your Jellyfin library so voice commands can match unusual spellings (e.g. deadmau5, Gorillaz)",
           "cache_albums": "Cache album names for the same phonetic voice matching",
           "cache_interval": "How often to refresh the cache with new library items, in minutes. Default 30. Range: 5–1440 (24h).",
-          "app_aliases": "Map friendly voice names to Flatpak IDs. One per line or comma-separated. Example: youtube=rocks.shy.VacuumTube, browser=org.mozilla.firefox. Find IDs by running flatpak list on the device."
+          "app_aliases": "Map friendly voice names to Flatpak IDs. One per line or comma-separated. Example: youtube=rocks.shy.VacuumTube, browser=org.mozilla.firefox. Find IDs by running flatpak list on the device.",
+          "volume_buttons_entity": "Media player the remote's volume buttons step, such as an AV receiver. Needs remote_buttons in the agent config. Leave empty to keep the buttons as events only."
         }
       }
     },

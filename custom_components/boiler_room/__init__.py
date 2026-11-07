@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -18,7 +19,17 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import BoilerRoomAPI
-from .const import CONF_DEVICE_ID, CONF_HOST, CONF_PORT, DOMAIN, PLATFORMS, SCAN_INTERVAL
+from .const import (
+    CONF_DEVICE_ID,
+    CONF_HOST,
+    CONF_PORT,
+    CONF_VOLUME_BUTTONS_ENTITY,
+    DOMAIN,
+    EVENT_REMOTE_BUTTON,
+    PLATFORMS,
+    SCAN_INTERVAL,
+)
+from .core.remote import VolumeGate, parse_event
 from .services import async_register_services, async_unregister_services
 from .voice import async_refresh_voice_triggers, async_remove_voice_triggers
 
@@ -250,6 +261,8 @@ class BoilerRoomCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=SCAN_INTERVAL),
         )
         self.api = api
+        self._entry = entry
+        self._volume_gate = VolumeGate()
         self._host = entry.data[CONF_HOST]
         self._port = entry.data[CONF_PORT]
         self._store = Store(
@@ -404,3 +417,41 @@ class BoilerRoomCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             new_state = (event.get("data") or {}).get("power_state")
             if new_state:
                 self._apply_pushed_power_state(new_state)
+        elif event.get("type") == "remote_button":
+            parsed = parse_event(event.get("data"))
+            if parsed:
+                self._handle_remote_button(*parsed)
+
+    # ─── Remote buttons ───
+
+    def _handle_remote_button(self, button: str, action: str) -> None:
+        """Fire the button as an HA event and drive the chosen media player.
+
+        Every event is fired, so automations can use any key. Volume keys
+        also act on the media player set in options, if any.
+        """
+        self.hass.bus.async_fire(
+            EVENT_REMOTE_BUTTON,
+            {
+                "entry_id": self._entry.entry_id,
+                "device_id": self._entry.data.get(CONF_DEVICE_ID),
+                "button": button,
+                "action": action,
+            },
+        )
+
+        target = self._entry.options.get(CONF_VOLUME_BUTTONS_ENTITY)
+        if not target:
+            return
+        service = self._volume_gate.service_for(button, action, time.monotonic())
+        if service is None:
+            return
+
+        data: dict[str, Any] = {"entity_id": target}
+        if service == "volume_mute":
+            state = self.hass.states.get(target)
+            muted = bool(state and state.attributes.get("is_volume_muted"))
+            data["is_volume_muted"] = not muted
+        self.hass.async_create_task(
+            self.hass.services.async_call("media_player", service, data)
+        )

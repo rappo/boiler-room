@@ -21,6 +21,18 @@ type Config struct {
 
 	// Update settings
 	RepoURL string `yaml:"repo_url"` // GitHub/Forgejo repo URL for self-updates
+
+	// Remote buttons: keys on one input device reported to Home Assistant
+	// as button events. Off unless a device is named.
+	RemoteButtons RemoteButtons `yaml:"remote_buttons"`
+}
+
+// RemoteButtons names the input device to read and which of its keys
+// count as which button, e.g. device "input-remapper keyboard" with keys
+// {KEY_F21: volume_up}.
+type RemoteButtons struct {
+	Device string            `yaml:"device"`
+	Keys   map[string]string `yaml:"keys"`
 }
 
 // DefaultConfig returns a config with sensible defaults

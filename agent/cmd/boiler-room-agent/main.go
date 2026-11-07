@@ -16,6 +16,7 @@ import (
 	"github.com/rappo/boiler-room/agent/internal/plugins"
 	"github.com/rappo/boiler-room/agent/internal/plugins/jellyfin"
 	"github.com/rappo/boiler-room/agent/internal/plugins/youtube"
+	"github.com/rappo/boiler-room/agent/internal/remote"
 	"github.com/rappo/boiler-room/agent/internal/system"
 	"github.com/rappo/boiler-room/agent/internal/updater"
 )
@@ -121,10 +122,35 @@ func main() {
 		defer stopMDNS()
 	}
 
-	// Start HTTP API server (blocks until a signal arrives)
 	server := api.NewServer(scanner, sysInfo, pluginMgr, upd, powerState, cfg.APIPort, cfg.DeviceName, version)
+
+	startRemoteButtons(ctx, cfg.RemoteButtons, server)
+
+	// Start HTTP API server (blocks until a signal arrives)
 	if err := server.Start(ctx); err != nil {
 		log.Fatal(err)
 	}
 	log.Println("Boiler Room Agent stopped")
+}
+
+// startRemoteButtons reads the configured device in the background and
+// pushes each key event to Home Assistant over the WebSocket.
+func startRemoteButtons(ctx context.Context, rb config.RemoteButtons, server *api.Server) {
+	if rb.Device == "" {
+		log.Printf("Remote buttons: off (set remote_buttons.device in config)")
+		return
+	}
+	keys, err := remote.ParseKeys(rb.Keys)
+	if err != nil {
+		log.Printf("Remote buttons: off: %v", err)
+		return
+	}
+	if len(keys) == 0 {
+		log.Printf("Remote buttons: off: remote_buttons.keys is empty")
+		return
+	}
+	w := &remote.Watcher{Device: rb.Device, Keys: keys, Emit: func(e remote.Event) {
+		server.Broadcast(api.StateEvent{Type: "remote_button", Data: e})
+	}}
+	go w.Run(ctx)
 }
